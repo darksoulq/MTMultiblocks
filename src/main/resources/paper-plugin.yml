@@ -1,0 +1,12 @@
+name: MTMultiblocks
+version: '${version}'
+
+main: com.github.darksoulq.mt_multiblocks.MTMultiblocks
+api-version: '26.2'
+load: POSTWORLD
+
+dependencies:
+  server:
+    Minetorio:
+      required: true
+      load: BEFORE
