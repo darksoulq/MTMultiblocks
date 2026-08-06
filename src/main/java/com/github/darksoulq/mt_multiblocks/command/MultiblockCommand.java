@@ -16,6 +16,7 @@ import org.bukkit.util.Vector;
 import java.io.File;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -25,15 +26,15 @@ public class MultiblockCommand {
         commands.register(Commands.literal("mtb")
                 .requires(source -> source.getSender().hasPermission("mt_multiblocks.admin"))
                 .then(Commands.literal("pos1")
-                        .executes(ctx -> executePos1(ctx.getSource()))
+                    .executes(ctx -> executePos1(ctx.getSource()))
                 )
                 .then(Commands.literal("pos2")
-                        .executes(ctx -> executePos2(ctx.getSource()))
+                    .executes(ctx -> executePos2(ctx.getSource()))
                 )
                 .then(Commands.literal("save")
-                        .then(Commands.argument("filename", StringArgumentType.word())
-                                .executes(ctx -> executeSave(ctx.getSource(), StringArgumentType.getString(ctx, "filename")))
-                        )
+                    .then(Commands.argument("filename", StringArgumentType.word())
+                        .executes(ctx -> executeSave(ctx.getSource(), StringArgumentType.getString(ctx, "filename")))
+                    )
                 ).build(),
             "Multiblock management command"
         );
@@ -118,6 +119,13 @@ public class MultiblockCommand {
 
                         config.set("palette." + paletteKey + ".block_data", dataString);
                         config.set("palette." + paletteKey + ".port.type", "mt_multiblocks:structural_port");
+
+                        // Dynamically attach YAML comments generated via command to guide users on the new features
+                        config.setComments("palette." + paletteKey, List.of(
+                            "To make this optional with component choices, either:",
+                            "1) Change 'block_data' to a list of strings (for multiple specific blocks)",
+                            "2) Remove 'block_data' entirely and instead use 'tag' and 'default_block_data'"
+                        ));
                     }
 
                     Vector offset = block.getLocation().toVector().subtract(coreLoc.toVector());
@@ -128,6 +136,12 @@ public class MultiblockCommand {
                     config.set(path + ".z", offset.getBlockZ());
                     config.set(path + ".palette_key", paletteKey);
                     config.set(path + ".required", true);
+
+                    if (blockIndex == 1) {
+                        config.setComments(path, List.of(
+                            "Set 'required: false' to make this an OptionalComponent instead of RequiredComponent"
+                        ));
+                    }
                 }
             }
         }
