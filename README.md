@@ -166,14 +166,14 @@ MultiblockRegistry.instance.registerProxyFactory(EnergyPort.class, (location, co
 
 ## 5. Blueprint YAML & Palette System
 
-Blueprints can be saved and loaded dynamically using a key-based palette system.
+Blueprints can be saved and loaded dynamically using a key-based palette system. Optional components support advanced component choices (lists of block data or dynamic material tags), while required components enforce a strict single block data definition.
 
 ### YAML Schema (`snake_case`)
 
 ```yaml
 palette:
   p1:
-    block_data: "minecraft:copper_block" # BlockDataChoices take explicit block data
+    block_data: "minecraft:copper_block" # Single block data definition (used for Required or Optional)
     port:
       type: "mt_multiblocks:liquid_port"
       is_input: true
@@ -182,11 +182,18 @@ palette:
         - WATER
         - STEAM
   p2:
-    block_data: "minecraft:hopper"
+    block_data: # Multi-variant block choices for optional components (BlockDataChoice)
+      - "minecraft:glass"
+      - "minecraft:gray_stained_glass"
     port:
       type: "mt_multiblocks:item_port"
       is_input: false
       is_output: true
+  p3:
+    tag: "minecraft:logs" # TagChoice for optional components matching any block inside a Bukkit Tag
+    default_block_data: "minecraft:oak_log" # Fallback and display block data representation
+    port:
+      type: "mt_multiblocks:structural_port"
 
 blocks:
   b0:
@@ -194,14 +201,20 @@ blocks:
     y: 0
     z: 0
     palette_key: "p1"
-    required: true # Will parse as RequiredComponent
+    required: true # Parses as RequiredComponent (strict, auto-placed variant)
   b1:
     x: -1
     y: 0
     z: 0
     palette_key: "p2"
-    required: false # Will parse as OptionalComponent
-```
+    required: false # Parses as OptionalComponent supporting multiple valid block choices
+  b2:
+    x: 0
+    y: 0
+    z: 1
+    palette_key: "p3"
+    required: false # Parses as OptionalComponent supporting dynamic block tags
+ ```
 
 ---
 

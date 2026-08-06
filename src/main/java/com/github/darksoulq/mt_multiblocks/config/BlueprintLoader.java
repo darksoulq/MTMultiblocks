@@ -1,19 +1,27 @@
 package com.github.darksoulq.mt_multiblocks.config;
 
 import com.github.darksoulq.mt_multiblocks.MultiblockBlueprint;
+import com.github.darksoulq.mt_multiblocks.OptionalComponent;
+import com.github.darksoulq.mt_multiblocks.choice.BlockDataChoice;
+import com.github.darksoulq.mt_multiblocks.choice.ComponentChoice;
+import com.github.darksoulq.mt_multiblocks.choice.TagChoice;
 import com.github.darksoulq.mt_multiblocks.port.BasicStructuralPort;
 import com.github.darksoulq.mt_multiblocks.port.Port;
 import com.github.darksoulq.mt_multiblocks.port.PortFactory;
 import com.github.darksoulq.mt_multiblocks.registry.PortRegistry;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.Tag;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.util.Vector;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class BlueprintLoader {
@@ -34,11 +42,56 @@ public class BlueprintLoader {
                 ConfigurationSection pConfig = paletteSection.getConfigurationSection(key);
                 if (pConfig == null) continue;
 
-                String blockDataStr = pConfig.getString("block_data");
-                BlockData data = blockDataStr != null ? Bukkit.createBlockData(blockDataStr) : Bukkit.createBlockData(org.bukkit.Material.AIR);
-                Port port = parsePort(pConfig.getConfigurationSection("port"));
+                ComponentChoice choice;
+                BlockData primaryData;
 
-                palette.put(key, new PaletteEntry(data, port));
+                if (pConfig.contains("tag")) {
+                    String tagStr = pConfig.getString("tag");
+                    String defaultStr = pConfig.getString("default_block_data");
+                    BlockData defaultData;
+                    try {
+                        defaultData = defaultStr != null ? Bukkit.createBlockData(defaultStr) : Bukkit.createBlockData(Material.STONE);
+                    } catch (IllegalArgumentException e) {
+                        defaultData = Bukkit.createBlockData(Material.STONE);
+                    }
+
+                    NamespacedKey namespacedKey;
+                    if (tagStr != null && tagStr.contains(":")) {
+                        namespacedKey = NamespacedKey.fromString(tagStr);
+                    } else {
+                        namespacedKey = tagStr != null ? NamespacedKey.minecraft(tagStr) : NamespacedKey.minecraft("stone");
+                    }
+
+                    Tag<Material> tag = namespacedKey != null ? Bukkit.getTag(Tag.REGISTRY_BLOCKS, namespacedKey, Material.class) : null;
+                    if (tag != null) {
+                        choice = new TagChoice(tag, defaultData);
+                        primaryData = defaultData;
+                    } else {
+                        choice = new BlockDataChoice(defaultData);
+                        primaryData = defaultData;
+                    }
+                } else if (pConfig.isList("block_data")) {
+                    List<String> list = pConfig.getStringList("block_data");
+                    List<BlockData> dataList = new ArrayList<>();
+                    for (String s : list) {
+                        try {
+                            dataList.add(Bukkit.createBlockData(s));
+                        } catch (IllegalArgumentException ignored) {}
+                    }
+                    if (dataList.isEmpty()) {
+                        dataList.add(Bukkit.createBlockData(Material.AIR));
+                    }
+                    choice = new BlockDataChoice(dataList);
+                    primaryData = dataList.get(0);
+                } else {
+                    String blockDataStr = pConfig.getString("block_data");
+                    BlockData data = blockDataStr != null ? Bukkit.createBlockData(blockDataStr) : Bukkit.createBlockData(Material.AIR);
+                    choice = new BlockDataChoice(data);
+                    primaryData = data;
+                }
+
+                Port port = parsePort(pConfig.getConfigurationSection("port"));
+                palette.put(key, new PaletteEntry(primaryData, choice, port));
             }
         }
 
@@ -61,7 +114,7 @@ public class BlueprintLoader {
                     if (required) {
                         blueprint.addComponent(vec, entry.data, entry.port);
                     } else {
-                        blueprint.addOptionalComponent(vec, entry.data, entry.port);
+                        blueprint.addComponentObj(vec, new OptionalComponent(entry.choice, entry.port));
                     }
                 }
             }
@@ -95,9 +148,12 @@ public class BlueprintLoader {
 
     private static class PaletteEntry {
         BlockData data;
+        ComponentChoice choice;
         Port port;
-        PaletteEntry(BlockData data, Port port) {
+
+        PaletteEntry(BlockData data, ComponentChoice choice, Port port) {
             this.data = data;
+            this.choice = choice;
             this.port = port;
         }
     }
