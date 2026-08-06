@@ -3,6 +3,7 @@ package com.github.darksoulq.mt_multiblocks;
 import com.MT.xxxtrigger50xxx.Devices.Device;
 import com.github.darksoulq.mt_multiblocks.command.MultiblockCommand;
 import com.github.darksoulq.mt_multiblocks.core.MultiblockRegistry;
+import com.github.darksoulq.mt_multiblocks.example.VanillaOverrideExample;
 import com.github.darksoulq.mt_multiblocks.listener.MultiblockEventListener;
 import com.github.darksoulq.mt_multiblocks.port.BasicInteractPort;
 import com.github.darksoulq.mt_multiblocks.port.BasicItemPort;
@@ -33,6 +34,7 @@ public final class MTMultiblocks extends JavaPlugin {
         new MultiblockRegistry();
         getServer().getPluginManager().registerEvents(new MultiblockEventListener(), this);
         MultiblockPreviewManager.start();
+        VanillaOverrideExample.registerOverrides(this);
     }
 
     @Override

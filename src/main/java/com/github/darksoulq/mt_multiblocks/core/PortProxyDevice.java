@@ -7,13 +7,13 @@ import com.github.darksoulq.mt_multiblocks.port.InteractPort;
 import com.github.darksoulq.mt_multiblocks.port.ItemPort;
 import com.github.darksoulq.mt_multiblocks.port.LiquidPort;
 import com.github.darksoulq.mt_multiblocks.port.Port;
+import com.github.darksoulq.mt_multiblocks.port.RedstonePort;
 import com.github.darksoulq.mt_multiblocks.port.TickablePort;
 import com.github.darksoulq.mt_multiblocks.util.RotationUtil;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
-import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
@@ -88,6 +88,32 @@ public class PortProxyDevice extends Device {
 
     @Override
     public void tickDeviceAction() {
+        if (coreDevice == null || coreDevice.isRemoved() || shuttingDown) return;
+
+        if (port instanceof RedstonePort rp) {
+            Location loc = this.getLocationREADONLY();
+            if (!loc.getWorld().isChunkLoaded(loc.getBlockX() >> 4, loc.getBlockZ() >> 4)) return;
+
+            if (rp.canReceive()) {
+                int power = loc.getBlock().getBlockPower();
+                rp.onRedstoneReceive(coreDevice, power);
+            }
+
+            if (rp.canEmit()) {
+                int emission = rp.getEmissionLevel(coreDevice);
+                if (emission > 0) {
+                    for (BlockFace face : new BlockFace[]{BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST, BlockFace.UP, BlockFace.DOWN}) {
+                        Block relative = loc.getBlock().getRelative(face);
+                        if (relative.getBlockData() instanceof org.bukkit.block.data.AnaloguePowerable ap) {
+                            if (ap.getMaximumPower() >= emission && ap.getPower() < emission) {
+                                ap.setPower(emission);
+                                relative.setBlockData(ap, true);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @Override
@@ -252,10 +278,9 @@ public class PortProxyDevice extends Device {
         if (++tickCounter >= 20) {
             this.tickCounter = 0;
             BlockFace face = RotationUtil.getFacingSafely(coreDevice);
-            BlockData targetData = component.getRotatedData(face);
             Block block = loc.getBlock();
 
-            if (!block.getBlockData().matches(targetData)) {
+            if (!component.matches(block.getBlockData(), face)) {
                 if (isRequired()) {
                     Behaviors.handleValidationFailure(coreDevice);
                 } else {

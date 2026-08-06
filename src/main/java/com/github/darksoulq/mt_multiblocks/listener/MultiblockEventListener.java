@@ -68,12 +68,12 @@ public class MultiblockEventListener implements Listener {
         Behaviors.handleBlockBreak(event);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onEntityExplode(EntityExplodeEvent event) {
         Behaviors.handleExplosion(event.blockList(), MultiblockExplodeEvent.Cause.ENTITY, event.getEntity(), null);
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onBlockExplode(BlockExplodeEvent event) {
         Behaviors.handleExplosion(event.blockList(), MultiblockExplodeEvent.Cause.BLOCK, null, event.getBlock());
     }

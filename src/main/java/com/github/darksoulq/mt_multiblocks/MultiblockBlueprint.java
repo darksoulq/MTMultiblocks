@@ -1,7 +1,9 @@
 package com.github.darksoulq.mt_multiblocks;
 
 import com.MT.xxxtrigger50xxx.Devices.Device;
+import com.github.darksoulq.mt_multiblocks.choice.BlockDataChoice;
 import com.github.darksoulq.mt_multiblocks.port.Port;
+import com.github.darksoulq.mt_multiblocks.util.ValidationResult;
 import org.bukkit.Location;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.BlockData;
@@ -24,12 +26,22 @@ public class MultiblockBlueprint implements Serializable {
     private transient List<PlacementCondition> placementConditions;
 
     public MultiblockBlueprint addComponent(Vector relativeLocation, BlockData data, Port port) {
-        components.put(relativeLocation, new StructureComponent(data, port, true));
+        components.put(relativeLocation, new RequiredComponent(data, port));
         return this;
     }
 
     public MultiblockBlueprint addOptionalComponent(Vector relativeLocation, BlockData data, Port port) {
-        components.put(relativeLocation, new StructureComponent(data, port, false));
+        components.put(relativeLocation, new OptionalComponent(new BlockDataChoice(data), port));
+        return this;
+    }
+
+    public MultiblockBlueprint addOptionalComponent(Vector relativeLocation, List<BlockData> dataChoices, Port port) {
+        components.put(relativeLocation, new OptionalComponent(new BlockDataChoice(dataChoices), port));
+        return this;
+    }
+
+    public MultiblockBlueprint addComponentObj(Vector relativeLocation, StructureComponent component) {
+        components.put(relativeLocation, component);
         return this;
     }
 
@@ -49,13 +61,14 @@ public class MultiblockBlueprint implements Serializable {
         return new HashMap<>(components);
     }
 
-    public boolean canPlace(Location coreLoc, BlockFace facing, Player player) {
-        if (placementConditions == null) return true;
+    public ValidationResult canPlace(Location coreLoc, BlockFace facing, Player player) {
+        if (placementConditions == null) return ValidationResult.success();
         for (PlacementCondition condition : placementConditions) {
-            if (!condition.canPlace(coreLoc, facing, player)) {
-                return false;
+            ValidationResult result = condition.canPlace(coreLoc, facing, player);
+            if (!result.isValid()) {
+                return result;
             }
         }
-        return true;
+        return ValidationResult.success();
     }
 }

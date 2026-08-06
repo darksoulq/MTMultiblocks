@@ -17,43 +17,59 @@ dependencies {
 
 ## 2. Multiblock Blueprint API
 
-`MultiblockBlueprint` defines the structure, component offsets, and placement constraints of a multiblock.
+`MultiblockBlueprint` defines the structure, component offsets, and placement constraints of a multiblock. It utilizes a `PatternBuilder` to intuitively map characters to structural matrices.
 
-### Programmatic Blueprint Creation
+### Component Choices & Structure Components
+Structure components are strictly divided into `RequiredComponent` and `OptionalComponent` (sealed interface `StructureComponent`).
+
+You bind these components using a `ComponentChoice`, which allows either a strict block match (`BlockDataChoice`) or an entire material group (`TagChoice`).
+
+### Programmatic Blueprint Creation (`PatternBuilder`)
 
 ```java
 import com.github.darksoulq.mt_multiblocks.MultiblockBlueprint;
+import com.github.darksoulq.mt_multiblocks.RequiredComponent;
+import com.github.darksoulq.mt_multiblocks.OptionalComponent;
+import com.github.darksoulq.mt_multiblocks.choice.BlockDataChoice;
+import com.github.darksoulq.mt_multiblocks.choice.TagChoice;
 import com.github.darksoulq.mt_multiblocks.port.BasicItemPort;
 import com.github.darksoulq.mt_multiblocks.port.BasicLiquidPort;
+import com.github.darksoulq.mt_multiblocks.util.PatternBuilder;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
-import org.bukkit.util.Vector;
+import org.bukkit.Tag;
 
-MultiblockBlueprint blueprint = new MultiblockBlueprint();
-
-// Required components: core structure fails if these are missing/broken
-blueprint.addComponent(
-    new Vector(0, 1, 0),
-    Bukkit.createBlockData(Material.PISTON),
-    new BasicItemPort(true, false)
-);
-
-// Optional components: extend functionality without breaking core structure if destroyed
-blueprint.addOptionalComponent(
-    new Vector(0, -1, 0),
-    Bukkit.createBlockData(Material.COPPER_BLOCK),
-    new BasicLiquidPort(true, true, null)
-);
+// The PatternBuilder allows for intuitive layer-by-layer matrix assembly
+MultiblockBlueprint boilerBlueprint = new PatternBuilder()
+    .setCoreChar('C') // 'C' is the default core character representing (0,0,0)
+    
+    // Required components: Core structure fails/breaks if these are missing
+    .addMapping('O', new RequiredComponent(new BlockDataChoice(Bukkit.createBlockData(Material.COPPER_BLOCK)), new BasicLiquidPort(true, false)))
+    .addMapping('A', new RequiredComponent(new BlockDataChoice(Bukkit.createBlockData(Material.POLISHED_ANDESITE)), new BasicLiquidPort(false, true)))
+    
+    // Optional components: Functionality extensions (can be missing without breaking the core)
+    // TagChoice allows ANY block in a given Tag (e.g., ANY log), with a default fallback BlockData for displays
+    .addMapping('L', new OptionalComponent(new TagChoice(Tag.LOGS, Bukkit.createBlockData(Material.OAK_LOG)), null))
+    
+    // Add layers (bottom to top, arrays of strings)
+    .addLayer(
+        "LCL",
+        " A ",
+        " O "
+    )
+    .build();
 ```
 
-### Placement Conditions API
+### Placement Conditions API & ValidationResult
 
-`PlacementCondition` is a functional interface used to validate placement before assembly:
+`PlacementCondition` is a functional interface used to validate placement before assembly. It uses `ValidationResult` to provide detailed failure feedback instead of raw booleans.
 
 ```java
+import com.github.darksoulq.mt_multiblocks.util.ValidationResult;
+
 @FunctionalInterface
 public interface PlacementCondition {
-    boolean canPlace(Location coreLoc, BlockFace facing, Player player);
+    ValidationResult canPlace(Location coreLoc, BlockFace facing, Player player);
 }
 ```
 
@@ -61,8 +77,10 @@ Registering placement conditions to a blueprint:
 
 ```java
 blueprint.addPlacementCondition((coreLoc, facing, player) -> {
-    // Example: Core must be placed at or below sea level
-    return coreLoc.getBlockY() <= 63;
+    if (coreLoc.getBlockY() <= 63) {
+        return ValidationResult.success();
+    }
+    return ValidationResult.fail("Core must be placed at or below sea level!");
 });
 ```
 
@@ -80,7 +98,20 @@ Ports define functionality mapped to secondary blocks (items, liquids, redstone,
 | `mt_multiblocks:liquid_port` | `BasicLiquidPort` | `is_input`, `is_output`, `liquids` |
 | `mt_multiblocks:structural_port` | `BasicStructuralPort` | None |
 | `mt_multiblocks:interact_port` | `BasicInteractPort` | None |
-| `mt_multiblocks:redstone_port` | `BasicRedstonePort` | `can_receive`, `can_emit` |
+| `mt_multiblocks:redstone_port` | `BasicRedstonePort` | `can_receive`, `can_emit`, `emissionLevel` |
+
+### Redstone Port Interoperability
+The `RedstonePort` interface provides deep interoperability with vanilla redstone components, allowing multiblock components to actively push analogue power states to non-redstone proxy blocks.
+
+```java
+public interface RedstonePort extends Port {
+    boolean canReceive();
+    boolean canEmit();
+    int getEmissionLevel(Device coreDevice); // Must be clamped 0-15
+    void onRedstoneReceive(Device coreDevice, int powerLevel);
+}
+```
+*Note: `BasicRedstonePort` manages the `emissionLevel` bounds automatically and safely sets the power of adjacent `AnaloguePowerable` block states directly from the proxy device.*
 
 ### Custom Port Registration
 
@@ -142,7 +173,7 @@ Blueprints can be saved and loaded dynamically using a key-based palette system.
 ```yaml
 palette:
   p1:
-    block_data: "minecraft:copper_block"
+    block_data: "minecraft:copper_block" # BlockDataChoices take explicit block data
     port:
       type: "mt_multiblocks:liquid_port"
       is_input: true
@@ -163,30 +194,13 @@ blocks:
     y: 0
     z: 0
     palette_key: "p1"
-    required: true
+    required: true # Will parse as RequiredComponent
   b1:
     x: -1
     y: 0
     z: 0
     palette_key: "p2"
-    required: false
-```
-
-### Loading Blueprint Instances
-
-Use `BlueprintLoader` to convert YAML configurations into `MultiblockBlueprint` instances:
-
-```java
-import com.github.darksoulq.mt_multiblocks.config.BlueprintLoader;
-import com.github.darksoulq.mt_multiblocks.MultiblockBlueprint;
-import org.bukkit.configuration.file.YamlConfiguration;
-
-File file = new File(getDataFolder(), "blueprints/boiler.yml");
-MultiblockBlueprint blueprintFromFile = BlueprintLoader.loadBlueprint(file);
-
-// Or load from a ConfigurationSection directly:
-YamlConfiguration config = YamlConfiguration.loadConfiguration(file);
-MultiblockBlueprint blueprintFromConfig = BlueprintLoader.loadBlueprint(config);
+    required: false # Will parse as OptionalComponent
 ```
 
 ---
@@ -205,7 +219,7 @@ Blueprints can be generated in-game via Paper Brigadier commands.
 * If **>1 Bedrock blocks** exist in the selection, saving fails.
 * The Bedrock block is automatically excluded from the generated YAML components and used solely as the `0,0,0` offset pivot.
 
-> You must manually set the ports in the file
+> You must manually set the ports, optional toggles, and Tag choices in the generated file.
 
 ---
 
@@ -233,13 +247,14 @@ All events reside in `com.github.darksoulq.mt_multiblocks.events`.
 | :--- | :--- | :--- |
 | `MultiblockAssembleEvent` | Yes | Fired when a core device attempts to form its multiblock structure. |
 | `MultiblockDisassembleEvent` | No | Fired when a core device or required proxy is broken/disassembled. |
-| `MultiblockComponentAddEvent` | Yes | Fired when an optional or secondary component block is added post-assembly. |
+| `MultiblockComponentAddEvent` | Yes | Fired when an optional component block is added post-assembly. |
 | `MultiblockComponentRemoveEvent` | No | Fired when an optional component block is broken or removed. |
 | `MultiblockExplodeEvent` | Yes | Fired during block/entity explosions affecting multiblock components. |
 
-### `MultiblockExplodeEvent` Details
-
-Provides contextual metadata detailing explosion origin and targeted components:
+### Explosion Behavior & Handling
+Explosions strictly differentiate between `RequiredComponent` and `OptionalComponent`:
+* If an **Optional Component** is destroyed by an explosion, it breaks safely and triggers `MultiblockComponentRemoveEvent` (Core remains intact).
+* If a **Required Component** is destroyed by an explosion, the **ENTIRE CORE** and multiblock undergo full safe disassembly.
 
 ```java
 @EventHandler
@@ -250,36 +265,12 @@ public void onMultiblockExplode(MultiblockExplodeEvent event) {
 
     Set<Device> cores = event.getCoresToDisassemble();
     Set<PortProxyDevice> optionals = event.getOptionalProxiesHit();
-    Set<Block> requiredBlocks = event.getRequiredBlocksHit();
 
     // Cancel disassembly/destruction of specific required components
     if (cause == MultiblockExplodeEvent.Cause.ENTITY) {
         event.setCancelled(true);
     }
 }
-```
-
----
-
-## 9. Behaviors API
-
-`Behaviors` (`com.github.darksoulq.mt_multiblocks.core.Behaviors`) exposes certain utility methods to interact with multiblocks:
-
-```java
-// Handles structural validation failure for core devices
-Behaviors.handleValidationFailure(coreDevice);
-
-// Handles structural validation failure for optional proxies
-Behaviors.handleOptionalValidationFailure(proxyDevice);
-
-// Manually disassemble a multiblock structure
-Behaviors.disassembleMultiblock(coreDevice, blueprint, player);
-
-// Process explosion impact on blocks
-Behaviors.handleExplosion(blockList, MultiblockExplodeEvent.Cause.PLUGIN, null, null);
-
-// Check if a block is part of an active multiblock core/proxy
-boolean protectedBlock = Behaviors.isProtectedBlock(block);
 ```
 
 ---

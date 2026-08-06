@@ -14,6 +14,7 @@ import com.github.darksoulq.mt_multiblocks.events.MultiblockExplodeEvent;
 import com.github.darksoulq.mt_multiblocks.port.RedstonePort;
 import com.github.darksoulq.mt_multiblocks.util.MultiblockUtil;
 import com.github.darksoulq.mt_multiblocks.util.RotationUtil;
+import com.github.darksoulq.mt_multiblocks.util.ValidationResult;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -43,6 +44,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 public class Behaviors {
 
@@ -55,9 +57,10 @@ public class Behaviors {
             BlockFace facing = RotationUtil.getFacingSafely(device);
             ItemStack handItem = event.getPlayer().getInventory().getItemInMainHand();
 
-            if (!blueprint.canPlace(coreLoc, facing, event.getPlayer())) {
+            ValidationResult validation = blueprint.canPlace(coreLoc, facing, event.getPlayer());
+            if (!validation.isValid()) {
                 event.setCancelled(true);
-                event.setReason("Placement conditions not met for this multiblock.");
+                event.setReason(validation.getMessage() != null ? validation.getMessage() : "Placement conditions not met for this multiblock.");
                 return;
             }
 
@@ -100,9 +103,9 @@ public class Behaviors {
                 Block targetBlock = target.getBlock();
 
                 if (component.isRequired()) {
-                    targetBlock.setBlockData(component.getRotatedData(facing), false);
+                    targetBlock.setBlockData(component.getDisplayData(facing), false);
                     MultiblockRegistry.instance.registerSecondaryBlock(target, device, component);
-                } else if (targetBlock.getBlockData().matches(component.getRotatedData(facing))) {
+                } else if (component.matches(targetBlock.getBlockData(), facing)) {
                     MultiblockComponentAddEvent addEvent = new MultiblockComponentAddEvent(device, blueprint, targetBlock, component);
                     Bukkit.getPluginManager().callEvent(addEvent);
                     if (!addEvent.isCancelled()) {
@@ -136,7 +139,7 @@ public class Behaviors {
 
                     if (targetBlock.equals(placedBlock)) {
                         StructureComponent component = entry.getValue();
-                        if (placedBlock.getBlockData().matches(component.getRotatedData(facing))) {
+                        if (component.matches(placedBlock.getBlockData(), facing)) {
                             MultiblockComponentAddEvent addEvent = new MultiblockComponentAddEvent(device, blueprint, placedBlock, component);
                             Bukkit.getPluginManager().callEvent(addEvent);
                             if (!addEvent.isCancelled()) {
@@ -244,10 +247,39 @@ public class Behaviors {
             if (core != null && !core.isRemoved()) {
                 Block coreBlock = core.getLocationREADONLY().getBlock();
                 blockList.remove(coreBlock);
-                handleValidationFailure(core);
+
                 Bukkit.getScheduler().runTask(MineMain.getPlugin(), () -> {
                     if (coreBlock.getType() != Material.AIR) {
-                        coreBlock.setType(Material.AIR);
+                        Player player = null;
+                        if (cause == MultiblockExplodeEvent.Cause.ENTITY && entity != null) {
+                            if (entity instanceof org.bukkit.entity.TNTPrimed tnt && tnt.getSource() instanceof Player p) {
+                                player = p;
+                            } else if (entity instanceof org.bukkit.entity.Creeper creeper && creeper.getTarget() instanceof Player p) {
+                                player = p;
+                            }
+                        }
+                        if (player == null) {
+                            if (core.getPlacerUUIDString() != null) {
+                                try {
+                                    player = Bukkit.getPlayer(UUID.fromString(core.getPlacerUUIDString()));
+                                } catch (Exception ignored) {}
+                            }
+                        }
+                        if (player == null) {
+                            player = Bukkit.getOnlinePlayers().stream().findFirst().orElse(null);
+                        }
+
+                        if (player != null) {
+                            BlockBreakEvent coreEvent = new BlockBreakEvent(coreBlock, player);
+                            Bukkit.getPluginManager().callEvent(coreEvent);
+                            if (!coreEvent.isCancelled()) {
+                                coreBlock.setType(Material.AIR);
+                            }
+                        } else {
+                            handleValidationFailure(core);
+                        }
+                    } else {
+                        handleValidationFailure(core);
                     }
                 });
             }
@@ -264,6 +296,9 @@ public class Behaviors {
                 coreDevice.dropInventory();
             }
             disassembleMultiblock(coreDevice, blueprint, null, true);
+            coreDevice.onDeviceRemove();
+            coreDevice.cleanup();
+            coreDevice.iconCleanup();
             coreDevice.removeDevice();
         }
     }
@@ -388,6 +423,12 @@ public class Behaviors {
             } else {
                 if (!rp.canEmit()) {
                     event.setNewCurrent(0);
+                } else {
+                    event.setNewCurrent(Math.max(event.getNewCurrent(), rp.getEmissionLevel(proxy.getCoreDevice())));
+                }
+
+                if (rp.canReceive()) {
+                    rp.onRedstoneReceive(proxy.getCoreDevice(), event.getNewCurrent());
                 }
             }
         }
