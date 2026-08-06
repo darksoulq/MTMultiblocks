@@ -1,5 +1,6 @@
 plugins {
     id("java-library")
+    id("io.papermc.paperweight.userdev") version "2.0.0-beta.21"
     id("xyz.jpenilla.run-paper") version "3.0.2"
 }
 
@@ -12,7 +13,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:26.2.build.+")
+    paperweight.paperDevBundle("26.2.build.+")
     compileOnly("com.MT:Minetorio:1.0.1")
 }
 

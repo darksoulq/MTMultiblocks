@@ -7,6 +7,13 @@ import com.github.darksoulq.mt_multiblocks.MTMultiblock;
 import com.github.darksoulq.mt_multiblocks.MultiblockBlueprint;
 import com.github.darksoulq.mt_multiblocks.StructureComponent;
 import com.github.darksoulq.mt_multiblocks.util.RotationUtil;
+import com.github.darksoulq.mt_multiblocks.util.ValidationResult;
+import net.minecraft.network.protocol.game.ClientboundAddEntityPacket;
+import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
+import net.minecraft.network.protocol.game.ClientboundSetEntityDataPacket;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.phys.Vec3;
 import org.bukkit.Bukkit;
 import org.bukkit.Color;
 import org.bukkit.Location;
@@ -15,6 +22,8 @@ import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.block.data.Directional;
 import org.bukkit.block.data.Rotatable;
+import org.bukkit.craftbukkit.entity.CraftEntity;
+import org.bukkit.craftbukkit.entity.CraftPlayer;
 import org.bukkit.entity.BlockDisplay;
 import org.bukkit.entity.Display;
 import org.bukkit.entity.EntityType;
@@ -102,12 +111,12 @@ public class MultiblockPreviewManager {
             ItemStack lastItem = lastPreviewItems.get(p.getUniqueId());
 
             if (lastLoc.equals(coreLoc) && lastFace == facing && isSameHandItem(hand, lastItem)) {
-                updateGlowColors(p.getUniqueId(), blueprint, coreLoc, facing, hand);
+                updateGlowColors(p, blueprint, coreLoc, facing, hand);
                 return;
             }
         }
 
-        buildPreview(p.getUniqueId(), blueprint, hand, coreLoc, facing);
+        buildPreview(p, blueprint, hand, coreLoc, facing);
         lastPreviewLocations.put(p.getUniqueId(), coreLoc);
         lastPreviewFacings.put(p.getUniqueId(), facing);
         lastPreviewItems.put(p.getUniqueId(), hand.clone());
@@ -131,18 +140,19 @@ public class MultiblockPreviewManager {
         return null;
     }
 
-    private static void buildPreview(UUID uuid, MultiblockBlueprint blueprint, ItemStack hand, Location coreLoc, BlockFace facing) {
+    private static void buildPreview(Player p, MultiblockBlueprint blueprint, ItemStack hand, Location coreLoc, BlockFace facing) {
+        UUID uuid = p.getUniqueId();
         clearPreview(uuid);
         Map<Vector, StructureComponent> structure = blueprint.buildStructure(coreLoc, facing, null, hand);
         Display[] displays = new Display[structure.size() + 1];
-        boolean isValid = isValidPlacement(structure, coreLoc, facing);
+        boolean isValid = isValidPlacement(p, blueprint, structure, coreLoc, facing);
         Color coreGlowColor = isValid ? Color.LIME : Color.RED;
 
         Display coreDisplay;
         if (hand.getType() == Material.PLAYER_HEAD) {
             Location headLoc = coreLoc.clone().add(0.5, 0.5, 0.5);
             headLoc.setYaw(RotationUtil.getYawFromFace(facing));
-            ItemDisplay id = (ItemDisplay) coreLoc.getWorld().spawnEntity(headLoc, EntityType.ITEM_DISPLAY);
+            ItemDisplay id = (ItemDisplay) coreLoc.getWorld().createEntity(headLoc, ItemDisplay.class);
             id.setItemStack(hand);
             id.setItemDisplayTransform(ItemDisplayTransform.HEAD);
             coreDisplay = id;
@@ -153,7 +163,7 @@ public class MultiblockPreviewManager {
             } else if (coreData instanceof Rotatable rot) {
                 rot.setRotation(facing);
             }
-            BlockDisplay bd = (BlockDisplay) coreLoc.getWorld().spawnEntity(coreLoc, EntityType.BLOCK_DISPLAY);
+            BlockDisplay bd = (BlockDisplay) coreLoc.getWorld().createEntity(coreLoc, BlockDisplay.class);
             bd.setBlock(coreData);
             coreDisplay = bd;
         }
@@ -161,6 +171,7 @@ public class MultiblockPreviewManager {
         coreDisplay.setGlowing(true);
         coreDisplay.setGlowColorOverride(coreGlowColor);
         displays[0] = coreDisplay;
+        sendEntitySpawn(p, coreDisplay);
 
         int index = 1;
         for (Map.Entry<Vector, StructureComponent> entry : structure.entrySet()) {
@@ -172,28 +183,32 @@ public class MultiblockPreviewManager {
             }
 
             StructureComponent component = entry.getValue();
-            BlockDisplay display = (BlockDisplay) target.getWorld().spawnEntity(target, EntityType.BLOCK_DISPLAY);
-            display.setBlock(component.getRotatedData(facing));
+            BlockDisplay display = (BlockDisplay) target.getWorld().createEntity(target, BlockDisplay.class);
+            display.setBlock(component.getDisplayData(facing));
             display.setGlowing(true);
 
             Color componentColor = component.isRequired() ? coreGlowColor : Color.AQUA;
             display.setGlowColorOverride(componentColor);
-            displays[index++] = display;
+            displays[index] = display;
+            sendEntitySpawn(p, display);
+            index++;
         }
 
         activePreviews.put(uuid, displays);
     }
 
-    private static void updateGlowColors(UUID uuid, MultiblockBlueprint blueprint, Location coreLoc, BlockFace facing, ItemStack hand) {
+    private static void updateGlowColors(Player p, MultiblockBlueprint blueprint, Location coreLoc, BlockFace facing, ItemStack hand) {
+        UUID uuid = p.getUniqueId();
         Display[] displays = activePreviews.get(uuid);
         if (displays == null) return;
 
         Map<Vector, StructureComponent> structure = blueprint.buildStructure(coreLoc, facing, null, hand);
-        boolean isValid = isValidPlacement(structure, coreLoc, facing);
+        boolean isValid = isValidPlacement(p, blueprint, structure, coreLoc, facing);
         Color baseGlowColor = isValid ? Color.LIME : Color.RED;
 
-        if (displays[0] != null && displays[0].isValid() && (displays[0].getGlowColorOverride() == null || !displays[0].getGlowColorOverride().equals(baseGlowColor))) {
+        if (displays[0] != null && (displays[0].getGlowColorOverride() == null || !displays[0].getGlowColorOverride().equals(baseGlowColor))) {
             displays[0].setGlowColorOverride(baseGlowColor);
+            sendEntityMetadata(p, displays[0]);
         }
 
         int index = 1;
@@ -201,8 +216,9 @@ public class MultiblockPreviewManager {
             if (index < displays.length) {
                 Display display = displays[index];
                 Color expectedColor = component.isRequired() ? baseGlowColor : Color.AQUA;
-                if (display != null && display.isValid() && (display.getGlowColorOverride() == null || !display.getGlowColorOverride().equals(expectedColor))) {
+                if (display != null && (display.getGlowColorOverride() == null || !display.getGlowColorOverride().equals(expectedColor))) {
                     display.setGlowColorOverride(expectedColor);
+                    sendEntityMetadata(p, display);
                 }
                 index++;
             }
@@ -212,8 +228,22 @@ public class MultiblockPreviewManager {
     public static void clearPreview(UUID uuid) {
         Display[] displays = activePreviews.remove(uuid);
         if (displays != null) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null && p.isOnline()) {
+                int count = 0;
+                for (Display d : displays) if (d != null) count++;
+                if (count > 0) {
+                    int[] ids = new int[count];
+                    int idx = 0;
+                    for (Display d : displays) {
+                        if (d != null) ids[idx++] = d.getEntityId();
+                    }
+                    ServerPlayer sp = ((CraftPlayer) p).getHandle();
+                    sp.connection.send(new ClientboundRemoveEntitiesPacket(ids));
+                }
+            }
             for (Display d : displays) {
-                if (d != null && d.isValid()) d.remove();
+                if (d != null) d.remove();
             }
         }
         lastPreviewLocations.remove(uuid);
@@ -221,7 +251,12 @@ public class MultiblockPreviewManager {
         lastPreviewItems.remove(uuid);
     }
 
-    private static boolean isValidPlacement(Map<Vector, StructureComponent> structure, Location core, BlockFace facing) {
+    private static boolean isValidPlacement(Player p, MultiblockBlueprint blueprint, Map<Vector, StructureComponent> structure, Location core, BlockFace facing) {
+        ValidationResult validation = blueprint.canPlace(core, facing, p);
+        if (!validation.isValid()) {
+            return false;
+        }
+
         for (Map.Entry<Vector, StructureComponent> entry : structure.entrySet()) {
             if (!entry.getValue().isRequired()) continue;
             Vector rotated = RotationUtil.rotateVector(entry.getKey(), facing);
@@ -244,6 +279,39 @@ public class MultiblockPreviewManager {
             return dir.getX() > 0.0 ? BlockFace.EAST : BlockFace.WEST;
         } else {
             return dir.getZ() > 0.0 ? BlockFace.SOUTH : BlockFace.NORTH;
+        }
+    }
+
+    private static void sendEntitySpawn(Player p, Display display) {
+        Entity nmsEntity = ((CraftEntity) display).getHandle();
+        ServerPlayer sp = ((CraftPlayer) p).getHandle();
+
+        sp.connection.send(new ClientboundAddEntityPacket(
+            nmsEntity.getId(),
+            nmsEntity.getUUID(),
+            nmsEntity.getX(),
+            nmsEntity.getY(),
+            nmsEntity.getZ(),
+            nmsEntity.getXRot(),
+            nmsEntity.getYRot(),
+            nmsEntity.getType(),
+            0,
+            Vec3.ZERO,
+            (double) nmsEntity.getYHeadRot()
+        ));
+
+        var data = nmsEntity.getEntityData().getNonDefaultValues();
+        if (data != null) {
+            sp.connection.send(new ClientboundSetEntityDataPacket(nmsEntity.getId(), data));
+        }
+    }
+
+    private static void sendEntityMetadata(Player p, Display display) {
+        Entity nmsEntity = ((CraftEntity) display).getHandle();
+        ServerPlayer sp = ((CraftPlayer) p).getHandle();
+        var data = nmsEntity.getEntityData().getNonDefaultValues();
+        if (data != null) {
+            sp.connection.send(new ClientboundSetEntityDataPacket(nmsEntity.getId(), data));
         }
     }
 }
