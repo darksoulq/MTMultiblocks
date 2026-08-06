@@ -100,8 +100,8 @@ Ports define functionality mapped to secondary blocks (items, liquids, redstone,
 | `mt_multiblocks:interact_port` | `BasicInteractPort` | None |
 | `mt_multiblocks:redstone_port` | `BasicRedstonePort` | `can_receive`, `can_emit`, `emissionLevel` |
 
-### Redstone Port Interoperability
-The `RedstonePort` interface provides deep interoperability with vanilla redstone components, allowing multiblock components to actively push analogue power states to non-redstone proxy blocks.
+### Redstone Port
+The `RedstonePort` interface provides interoperability with vanilla redstone components, allowing multiblock components to actively push analogue power states to non-redstone proxy blocks.
 
 ```java
 public interface RedstonePort extends Port {
@@ -164,9 +164,9 @@ MultiblockRegistry.instance.registerProxyFactory(EnergyPort.class, (location, co
 
 ---
 
-## 5. Blueprint YAML & Palette System
+## 5. Blueprint YAML
 
-Blueprints can be saved and loaded dynamically using a key-based palette system. Optional components support advanced component choices (lists of block data or dynamic material tags), while required components enforce a strict single block data definition.
+Blueprints can be saved and loaded using a key-based palette system. Optional components support component choices (lists of block data or material tags), while required components enforce a single block data definition.
 
 ### YAML Schema (`snake_case`)
 
@@ -250,7 +250,7 @@ MultiblockBlueprint retrieved = ExternalMultiblocks.getBlueprint("Crusher");
 
 ---
 
-## 8. Event System API
+## 8. Events
 
 All events reside in `com.github.darksoulq.mt_multiblocks.events`.
 
@@ -266,8 +266,8 @@ All events reside in `com.github.darksoulq.mt_multiblocks.events`.
 
 ### Explosion Behavior & Handling
 Explosions strictly differentiate between `RequiredComponent` and `OptionalComponent`:
-* If an **Optional Component** is destroyed by an explosion, it breaks safely and triggers `MultiblockComponentRemoveEvent` (Core remains intact).
-* If a **Required Component** is destroyed by an explosion, the **ENTIRE CORE** and multiblock undergo full safe disassembly.
+* If an **Optional Component** is destroyed by an explosion, it breaks and triggers `MultiblockComponentRemoveEvent` (Core remains intact).
+* If a **Required Component** is destroyed by an explosion, the **ENTIRE CORE** and multiblock break.
 
 ```java
 @EventHandler
