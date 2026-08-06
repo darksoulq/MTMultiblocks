@@ -1,18 +1,13 @@
 # MTMultiblocks Documentation
 
-## 1. Dependency Setup (JitPack)
+## 1. Dependency Setup
 
 ```groovy
-repositories {
-    mavenCentral()
-    maven { url '[https://jitpack.io](https://jitpack.io)' }
-}
-
 dependencies {
-    implementation 'com.github.darksoulq:mt_multiblocks:Tag'
+    implementation 'io.github.darksoulq:mt_multiblocks:Tag'
 }
 ```
-
+ 
 ---
 
 ## 2. Multiblock Blueprint API
