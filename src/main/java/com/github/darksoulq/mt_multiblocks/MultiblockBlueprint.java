@@ -1,14 +1,10 @@
 package com.github.darksoulq.mt_multiblocks;
 
-import com.MT.xxxtrigger50xxx.Devices.Device;
 import com.github.darksoulq.mt_multiblocks.choice.BlockDataChoice;
+import com.github.darksoulq.mt_multiblocks.model.MultiblockModel;
 import com.github.darksoulq.mt_multiblocks.port.Port;
 import com.github.darksoulq.mt_multiblocks.util.ValidationResult;
-import org.bukkit.Location;
-import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.BlockData;
-import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
 import org.bukkit.util.Vector;
 
 import java.io.Serial;
@@ -24,6 +20,7 @@ public class MultiblockBlueprint implements Serializable {
 
     private final Map<Vector, StructureComponent> components = new HashMap<>();
     private transient List<PlacementCondition> placementConditions;
+    private transient MultiblockModel model;
 
     public MultiblockBlueprint addComponent(Vector relativeLocation, BlockData data, Port port) {
         components.put(relativeLocation, new RequiredComponent(data, port));
@@ -53,18 +50,27 @@ public class MultiblockBlueprint implements Serializable {
         return this;
     }
 
+    public MultiblockBlueprint setModel(MultiblockModel model) {
+        this.model = model;
+        return this;
+    }
+
+    public MultiblockModel getModel() {
+        return model;
+    }
+
     public Map<Vector, StructureComponent> getComponents() {
         return components;
     }
 
-    public Map<Vector, StructureComponent> buildStructure(Location coreLoc, BlockFace facing, Device coreDevice, ItemStack coreItem) {
+    public Map<Vector, StructureComponent> buildStructure(BlueprintContext context) {
         return new HashMap<>(components);
     }
 
-    public ValidationResult canPlace(Location coreLoc, BlockFace facing, Player player) {
+    public ValidationResult canPlace(BlueprintContext context) {
         if (placementConditions == null) return ValidationResult.success();
         for (PlacementCondition condition : placementConditions) {
-            ValidationResult result = condition.canPlace(coreLoc, facing, player);
+            ValidationResult result = condition.canPlace(context);
             if (!result.isValid()) {
                 return result;
             }

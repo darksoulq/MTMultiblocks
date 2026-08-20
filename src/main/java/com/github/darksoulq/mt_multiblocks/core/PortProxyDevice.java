@@ -1,5 +1,6 @@
 package com.github.darksoulq.mt_multiblocks.core;
 
+import com.MT.triggersUtility.TUMaths;
 import com.MT.xxxtrigger50xxx.Devices.Device;
 import com.MT.xxxtrigger50xxx.PowerGrid.PowerGrid;
 import com.github.darksoulq.mt_multiblocks.StructureComponent;
@@ -10,15 +11,19 @@ import com.github.darksoulq.mt_multiblocks.port.Port;
 import com.github.darksoulq.mt_multiblocks.port.RedstonePort;
 import com.github.darksoulq.mt_multiblocks.port.TickablePort;
 import com.github.darksoulq.mt_multiblocks.util.RotationUtil;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.craftbukkit.CraftWorld;
 import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -29,8 +34,28 @@ public class PortProxyDevice extends Device {
     private byte tickCounter = 0;
     private transient boolean shuttingDown = false;
 
+    private static Field locField;
+    private static Field cachedLocField;
+
+    static {
+        try {
+            locField = Device.class.getDeclaredField("location");
+            locField.setAccessible(true);
+            cachedLocField = Device.class.getDeclaredField("cachedLocation");
+            cachedLocField.setAccessible(true);
+        } catch (Exception ignored) {}
+    }
+
     public PortProxyDevice(Location portLocation, Device coreDevice, StructureComponent component) {
-        super(portLocation);
+        super(null);
+
+        try {
+            if (locField != null && cachedLocField != null) {
+                locField.set(this, TUMaths.locationString(portLocation));
+                cachedLocField.set(this, portLocation.clone());
+            }
+        } catch (Exception ignored) {}
+
         this.coreDevice = coreDevice;
         this.component = component;
         this.port = component.getPort();
@@ -94,8 +119,11 @@ public class PortProxyDevice extends Device {
             Location loc = this.getLocationREADONLY();
             if (!loc.getWorld().isChunkLoaded(loc.getBlockX() >> 4, loc.getBlockZ() >> 4)) return;
 
+            ServerLevel nmsLevel = ((CraftWorld) loc.getWorld()).getHandle();
+            BlockPos pos = new BlockPos(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+
             if (rp.canReceive()) {
-                int power = loc.getBlock().getBlockPower();
+                int power = nmsLevel.getBestNeighborSignal(pos);
                 rp.onRedstoneReceive(coreDevice, power);
             }
 

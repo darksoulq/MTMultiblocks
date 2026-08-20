@@ -1,192 +1,223 @@
 # MTMultiblocks Documentation
 
+MTMultiblocks is an extension for the Minetorio framework, providing a robust API for defining, validating, and managing multiblocks. It handles component mapping, rotational states, port proxies, 3D display animations, and YAML blueprint serialization.
+
 ## 1. Dependency Setup
+
+Add the following to your `build.gradle`:
 
 ```groovy
 dependencies {
     implementation 'io.github.darksoulq:mt_multiblocks:Tag'
 }
+
 ```
- 
+
 ---
 
 ## 2. Multiblock Blueprint API
 
-`MultiblockBlueprint` defines the structure, component offsets, and placement constraints of a multiblock. It utilizes a `PatternBuilder` to intuitively map characters to structural matrices.
+A `MultiblockBlueprint` defines the structural layout, component offsets, and placement constraints of a multiblock.
 
-### Component Choices & Structure Components
-Structure components are strictly divided into `RequiredComponent` and `OptionalComponent` (sealed interface `StructureComponent`).
+Components are divided into two types:
 
-You bind these components using a `ComponentChoice`, which allows either a strict block match (`BlockDataChoice`) or an entire material group (`TagChoice`).
+* **Required Components:** The core structure. If broken, the entire multiblock disassembles.
+* **Optional Components:** Functional extensions. They can be added or removed dynamically without breaking the core device.
 
-### Programmatic Blueprint Creation (`PatternBuilder`)
+### Manual Blueprint Assembly
+
+You can build blueprints programmatically by defining vector offsets relative to the core `(0, 0, 0)`:
 
 ```java
-import com.github.darksoulq.mt_multiblocks.MultiblockBlueprint;
-import com.github.darksoulq.mt_multiblocks.RequiredComponent;
-import com.github.darksoulq.mt_multiblocks.OptionalComponent;
-import com.github.darksoulq.mt_multiblocks.choice.BlockDataChoice;
-import com.github.darksoulq.mt_multiblocks.choice.TagChoice;
-import com.github.darksoulq.mt_multiblocks.port.BasicItemPort;
-import com.github.darksoulq.mt_multiblocks.port.BasicLiquidPort;
-import com.github.darksoulq.mt_multiblocks.util.PatternBuilder;
-import org.bukkit.Bukkit;
-import org.bukkit.Material;
-import org.bukkit.Tag;
+MultiblockBlueprint blueprint = new MultiblockBlueprint();
 
-// The PatternBuilder allows for intuitive layer-by-layer matrix assembly
+blueprint.addComponent(
+    new Vector(0, 1, 0), 
+    Bukkit.createBlockData(Material.COPPER_BLOCK), 
+    new BasicLiquidPort(true, false)
+);
+
+blueprint.addOptionalComponent(
+    new Vector(1, 0, 0), 
+    List.of(Bukkit.createBlockData(Material.GLASS), Bukkit.createBlockData(Material.TINTED_GLASS)), 
+    new BasicItemPort(false, true)
+);
+
+```
+
+### Using PatternBuilder
+
+For complex structures, `PatternBuilder` allows for an intuitive, layer-by-layer matrix assembly.
+
+```java
 MultiblockBlueprint boilerBlueprint = new PatternBuilder()
-    .setCoreChar('C') // 'C' is the default core character representing (0,0,0)
-    
-    // Required components: Core structure fails/breaks if these are missing
-    .addMapping('O', new RequiredComponent(new BlockDataChoice(Bukkit.createBlockData(Material.COPPER_BLOCK)), new BasicLiquidPort(true, false)))
-    .addMapping('A', new RequiredComponent(new BlockDataChoice(Bukkit.createBlockData(Material.POLISHED_ANDESITE)), new BasicLiquidPort(false, true)))
-    
-    // Optional components: Functionality extensions (can be missing without breaking the core)
-    // TagChoice allows ANY block in a given Tag (e.g., ANY log), with a default fallback BlockData for displays
+    .setCoreChar('C') 
+    .addMapping('O', new RequiredComponent(Bukkit.createBlockData(Material.COPPER_BLOCK), new BasicLiquidPort(true, false)))
     .addMapping('L', new OptionalComponent(new TagChoice(Tag.LOGS, Bukkit.createBlockData(Material.OAK_LOG)), null))
-    
-    // Add layers (bottom to top, arrays of strings)
     .addLayer(
         "LCL",
-        " A ",
+        " O ",
         " O "
     )
     .build();
-```
 
-### Placement Conditions API & ValidationResult
-
-`PlacementCondition` is a functional interface used to validate placement before assembly. It uses `ValidationResult` to provide detailed failure feedback instead of raw booleans.
-
-```java
-import com.github.darksoulq.mt_multiblocks.util.ValidationResult;
-
-@FunctionalInterface
-public interface PlacementCondition {
-    ValidationResult canPlace(Location coreLoc, BlockFace facing, Player player);
-}
-```
-
-Registering placement conditions to a blueprint:
-
-```java
-blueprint.addPlacementCondition((coreLoc, facing, player) -> {
-    if (coreLoc.getBlockY() <= 63) {
-        return ValidationResult.success();
-    }
-    return ValidationResult.fail("Core must be placed at or below sea level!");
-});
 ```
 
 ---
 
-## 3. Port System & Port Registry
+## 3. Placement Conditions API
+
+`PlacementCondition` is a functional interface used to validate the environment before assembly. It evaluates a `BlueprintContext` and returns a `ValidationResult` to provide detailed failure feedback.
+
+```java
+blueprint.addPlacementCondition(context -> {
+    if (ContextConditions.isBelowY(context, 63)) {
+        return ValidationResult.success();
+    }
+    return ValidationResult.fail("Core must be placed at or below sea level!");
+});
+
+```
+
+The `BlueprintContext` object provides safe access to the placement context, including:
+
+* `getCoreLocation()`
+* `getFacing()`
+* `getPlayer()`
+* `getItemStack()`
+* `getDevice()`
+
+---
+
+## 4. Port System & Port Registry
 
 Ports define functionality mapped to secondary blocks (items, liquids, redstone, interactions).
 
 ### Built-in Ports
 
 | NamespacedKey | Class | Key Configuration Options |
-| :--- | :--- | :--- |
+| --- | --- | --- |
 | `mt_multiblocks:item_port` | `BasicItemPort` | `is_input`, `is_output`, `slots` |
 | `mt_multiblocks:liquid_port` | `BasicLiquidPort` | `is_input`, `is_output`, `liquids` |
 | `mt_multiblocks:structural_port` | `BasicStructuralPort` | None |
 | `mt_multiblocks:interact_port` | `BasicInteractPort` | None |
 | `mt_multiblocks:redstone_port` | `BasicRedstonePort` | `can_receive`, `can_emit`, `emissionLevel` |
 
-### Redstone Port
-The `RedstonePort` interface provides interoperability with vanilla redstone components, allowing multiblock components to actively push analogue power states to non-redstone proxy blocks.
-
-```java
-public interface RedstonePort extends Port {
-    boolean canReceive();
-    boolean canEmit();
-    int getEmissionLevel(Device coreDevice); // Must be clamped 0-15
-    void onRedstoneReceive(Device coreDevice, int powerLevel);
-}
-```
-*Note: `BasicRedstonePort` manages the `emissionLevel` bounds automatically and safely sets the power of adjacent `AnaloguePowerable` block states directly from the proxy device.*
-
 ### Custom Port Registration
 
 To define custom ports, implement `Port` and register a `PortFactory` via `PortRegistry`:
 
 ```java
-import com.github.darksoulq.mt_multiblocks.port.Port;
-import com.github.darksoulq.mt_multiblocks.registry.PortRegistry;
-import org.bukkit.NamespacedKey;
-import org.bukkit.configuration.ConfigurationSection;
-
-public class EnergyPort implements Port {
-    private final int maxTransfer;
-
-    public EnergyPort(int maxTransfer) {
-        this.maxTransfer = maxTransfer;
-    }
-
-    public int getMaxTransfer() {
-        return maxTransfer;
-    }
-}
-
-// Registration in plugin initialization
 NamespacedKey key = new NamespacedKey(plugin, "energy_port");
-PortRegistry.register(key, (ConfigurationSection config) -> {
+PortRegistry.register(key, config -> {
     int maxTransfer = config.getInt("max_transfer", 1000);
     return new EnergyPort(maxTransfer);
 });
+
 ```
 
 ---
 
-## 4. Proxy Devices & Custom Proxy Factories
+## 5. Proxy Devices
 
-When secondary multiblock components are placed in the world, they are bound to a proxy device (`PortProxyDevice`) extending Minetorio's `Device`.
-
-### Registering a Custom Proxy Factory
-
-To override the default `PortProxyDevice` instantiation for specific port types:
+When secondary multiblock components are placed in the world, they are bound to a proxy device (`PortProxyDevice`) extending Minetorio's `Device`. To override the default proxy instantiation for specific port types, register a custom `ProxyFactory`:
 
 ```java
-import com.github.darksoulq.mt_multiblocks.core.MultiblockRegistry;
-import com.github.darksoulq.mt_multiblocks.core.ProxyFactory;
-
 MultiblockRegistry.instance.registerProxyFactory(EnergyPort.class, (location, coreDevice, component) -> {
     return new CustomEnergyProxyDevice(location, coreDevice, component);
 });
+
 ```
 
 ---
 
-## 5. Blueprint YAML
+## 6. 3D Models & Animations
 
-Blueprints can be saved and loaded using a key-based palette system. Optional components support component choices (lists of block data or material tags), while required components enforce a single block data definition.
+MTMultiblocks supports rendering visual, animated 3D models using Minecraft's Display Entities (Block, Item, and Text displays) bound to the multiblock structure.
 
-### YAML Schema (`snake_case`)
+### Defining Models and Parts
+
+Models are composed of `ModelPart` instances. Each part is identified by a unique string ID and can have default translations, scales, and rotations applied.
+
+```java
+MultiblockModel model = new MultiblockModel()
+    .addPart(ModelPart.block("main_gear", Bukkit.createBlockData(Material.COPPER_BLOCK))
+        .translate(0, 1.5, 0)
+        .scale(0.5, 0.5, 0.5))
+    .addPart(ModelPart.item("core_crystal", new ItemStack(Material.DIAMOND))
+        .translate(0, 0.5, 0));
+
+blueprint.setModel(model);
+
+```
+
+### Creating Animations with Keyframes
+
+Animations are built using timelines of `Keyframe` objects assigned to specific part IDs. Keyframes define the target state (translation, rotation, scale) and the `Easing` transition over a specific duration in ticks.
+
+```java
+ModelAnimation spinAnimation = new ModelAnimation("spin")
+    .addKeyframe("main_gear", new Keyframe(20)
+        .rotateY(180)
+        .easing(Easing.EASE_IN_OUT_QUAD))
+    .addKeyframe("main_gear", new Keyframe(20)
+        .rotateY(360)
+        .easing(Easing.EASE_IN_OUT_QUAD));
+
+model.addAnimation(spinAnimation);
+
+```
+
+### Controlling Animations In-Game
+
+You can retrieve the `AnimationController` for any active multiblock device to dynamically play, loop, or stop animations.
+
+```java
+AnimationController animController = AnimationController.get(device);
+
+if (animController != null && !animController.isPlaying()) {
+    MultiblockModel model = animController.getBlueprintModel();
+    ModelAnimation anim = model.getAnimation("spin");
+    
+    animController.play(anim, true);
+}
+
+```
+
+To stop an animation and automatically reset all parts to their default definitions:
+
+```java
+animController.stop();
+
+```
+
+---
+
+## 7. Blueprint YAML Schema
+
+Blueprints can be saved and loaded using a key-based palette system.
 
 ```yaml
 palette:
   p1:
-    block_data: "minecraft:copper_block" # Single block data definition (used for Required or Optional)
+    block_data: "minecraft:copper_block"
     port:
       type: "mt_multiblocks:liquid_port"
       is_input: true
       is_output: false
       liquids:
         - WATER
-        - STEAM
   p2:
-    block_data: # Multi-variant block choices for optional components (BlockDataChoice)
+    block_data: 
       - "minecraft:glass"
-      - "minecraft:gray_stained_glass"
+      - "minecraft:tinted_glass"
     port:
       type: "mt_multiblocks:item_port"
       is_input: false
       is_output: true
   p3:
-    tag: "minecraft:logs" # TagChoice for optional components matching any block inside a Bukkit Tag
-    default_block_data: "minecraft:oak_log" # Fallback and display block data representation
+    tag: "minecraft:logs"
+    default_block_data: "minecraft:oak_log"
     port:
       type: "mt_multiblocks:structural_port"
 
@@ -196,89 +227,62 @@ blocks:
     y: 0
     z: 0
     palette_key: "p1"
-    required: true # Parses as RequiredComponent (strict, auto-placed variant)
+    required: true
   b1:
     x: -1
     y: 0
     z: 0
     palette_key: "p2"
-    required: false # Parses as OptionalComponent supporting multiple valid block choices
-  b2:
-    x: 0
-    y: 0
-    z: 1
-    palette_key: "p3"
-    required: false # Parses as OptionalComponent supporting dynamic block tags
- ```
+    required: false
 
----
-
-## 6. In-Game Selection & Creation Command
-
-Blueprints can be generated in-game via Paper Brigadier commands.
-
-### Workflow
-1. Mark two corners of the target multiblock area using `/mtb pos1` and `/mtb pos2`.
-2. Place exactly **one Bedrock block** within the selected volume to designate the relative core position (`0, 0, 0`).
-3. Run `/mtb save <filename>`.
-
-### Error Handling
-* If **0 Bedrock blocks** exist in the selection, saving fails.
-* If **>1 Bedrock blocks** exist in the selection, saving fails.
-* The Bedrock block is automatically excluded from the generated YAML components and used solely as the `0,0,0` offset pivot.
-
-> You must manually set the ports, optional toggles, and Tag choices in the generated file.
-
----
-
-## 7. External Multiblock Registration
-
-Register blueprints to non-`MTMultiblock` `Device` instances using device names:
-
-```java
-import com.github.darksoulq.mt_multiblocks.ExternalMultiblocks;
-
-ExternalMultiblocks.registerBlueprint("Crusher", crusherBlueprint);
-boolean exists = ExternalMultiblocks.hasBlueprint("Crusher");
-MultiblockBlueprint retrieved = ExternalMultiblocks.getBlueprint("Crusher");
 ```
 
 ---
 
-## 8. Events
+## 8. In-Game Selection Command
+
+Blueprints can be generated in-game via Paper Brigadier commands.
+
+1. Mark two corners of the target multiblock area using `/mtb pos1` and `/mtb pos2`.
+2. Place exactly **one Bedrock block** within the selected volume to designate the relative core position (`0, 0, 0`).
+3. Run `/mtb save <filename>`.
+
+**Notes:**
+
+* The Bedrock block is automatically excluded from the generated YAML components.
+* You must manually configure the ports, optional toggles, and Tag choices in the generated `.yml` file.
+
+---
+
+## 9. External Multiblock Registration
+
+Register blueprints to non-`MTMultiblock` `Device` instances using device names via `ExternalMultiblocks`:
+
+```java
+ExternalMultiblocks.registerBlueprint("Crusher", crusherBlueprint);
+
+ExternalMultiblocks.registerBlueprint("DynamicMachine", context -> generateBlueprint(context));
+
+boolean exists = ExternalMultiblocks.hasBlueprint("Crusher");
+MultiblockBlueprint retrieved = ExternalMultiblocks.getBlueprint("Crusher", context);
+
+```
+
+---
+
+## 10. Events
 
 All events reside in `com.github.darksoulq.mt_multiblocks.events`.
 
-### Event Overview
-
 | Event | Cancellable | Description |
-| :--- | :--- | :--- |
-| `MultiblockAssembleEvent` | Yes | Fired when a core device attempts to form its multiblock structure. |
+| --- | --- | --- |
+| `MultiblockAssembleEvent` | Yes | Fired when a core device attempts to form its structure. |
 | `MultiblockDisassembleEvent` | No | Fired when a core device or required proxy is broken/disassembled. |
 | `MultiblockComponentAddEvent` | Yes | Fired when an optional component block is added post-assembly. |
 | `MultiblockComponentRemoveEvent` | No | Fired when an optional component block is broken or removed. |
 | `MultiblockExplodeEvent` | Yes | Fired during block/entity explosions affecting multiblock components. |
 
-### Explosion Behavior & Handling
-Explosions strictly differentiate between `RequiredComponent` and `OptionalComponent`:
-* If an **Optional Component** is destroyed by an explosion, it breaks and triggers `MultiblockComponentRemoveEvent` (Core remains intact).
-* If a **Required Component** is destroyed by an explosion, the **ENTIRE CORE** and multiblock break.
+### Explosion Behavior
 
-```java
-@EventHandler
-public void onMultiblockExplode(MultiblockExplodeEvent event) {
-    MultiblockExplodeEvent.Cause cause = event.getCause(); // BLOCK, ENTITY, PLUGIN, UNKNOWN
-    Entity entity = event.getEntity();
-    Block sourceBlock = event.getBlock();
-
-    Set<Device> cores = event.getCoresToDisassemble();
-    Set<PortProxyDevice> optionals = event.getOptionalProxiesHit();
-
-    // Cancel disassembly/destruction of specific required components
-    if (cause == MultiblockExplodeEvent.Cause.ENTITY) {
-        event.setCancelled(true);
-    }
-}
-```
-
----
+* **Optional Components:** Destruction triggers `MultiblockComponentRemoveEvent`. The core remains intact.
+* **Required Components:** Destruction breaks the **entire core** and disassembles the multiblock.

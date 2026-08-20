@@ -4,6 +4,7 @@ import com.MT.xxxtrigger50xxx.API.MTEvents.BreakDeviceEvent;
 import com.MT.xxxtrigger50xxx.API.MTEvents.PlaceDeviceEvent;
 import com.MT.xxxtrigger50xxx.Devices.Device;
 import com.MT.xxxtrigger50xxx.MineMain;
+import com.github.darksoulq.mt_multiblocks.BlueprintContext;
 import com.github.darksoulq.mt_multiblocks.MultiblockBlueprint;
 import com.github.darksoulq.mt_multiblocks.StructureComponent;
 import com.github.darksoulq.mt_multiblocks.events.MultiblockAssembleEvent;
@@ -12,14 +13,19 @@ import com.github.darksoulq.mt_multiblocks.events.MultiblockComponentRemoveEvent
 import com.github.darksoulq.mt_multiblocks.events.MultiblockDisassembleEvent;
 import com.github.darksoulq.mt_multiblocks.events.MultiblockExplodeEvent;
 import com.github.darksoulq.mt_multiblocks.port.RedstonePort;
+import com.github.darksoulq.mt_multiblocks.registry.MultiblockRegistry;
 import com.github.darksoulq.mt_multiblocks.util.MultiblockUtil;
 import com.github.darksoulq.mt_multiblocks.util.RotationUtil;
 import com.github.darksoulq.mt_multiblocks.util.ValidationResult;
+import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.Blocks;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.craftbukkit.CraftWorld;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.block.Action;
@@ -50,21 +56,21 @@ public class Behaviors {
 
     public static void handleMultiblockPlace(PlaceDeviceEvent event) {
         Device device = event.getDevice();
-        MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(device);
+        BlueprintContext context = new BlueprintContext(device.getLocationREADONLY(), RotationUtil.getFacingSafely(device), event.getPlayer(), event.getPlayer().getInventory().getItemInMainHand(), device);
+        MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(device, context);
 
         if (blueprint != null) {
-            Location coreLoc = device.getLocationREADONLY();
-            BlockFace facing = RotationUtil.getFacingSafely(device);
-            ItemStack handItem = event.getPlayer().getInventory().getItemInMainHand();
+            Location coreLoc = context.getCoreLocation();
+            BlockFace facing = context.getFacing();
 
-            ValidationResult validation = blueprint.canPlace(coreLoc, facing, event.getPlayer());
+            ValidationResult validation = blueprint.canPlace(context);
             if (!validation.isValid()) {
                 event.setCancelled(true);
                 event.setReason(validation.getMessage() != null ? validation.getMessage() : "Placement conditions not met for this multiblock.");
                 return;
             }
 
-            Map<Vector, StructureComponent> structure = blueprint.buildStructure(coreLoc, facing, device, handItem);
+            Map<Vector, StructureComponent> structure = blueprint.buildStructure(context);
             Map<Location, StructureComponent> structureBlocks = new HashMap<>(structure.size());
 
             for (Map.Entry<Vector, StructureComponent> entry : structure.entrySet()) {
@@ -103,7 +109,10 @@ public class Behaviors {
                 Block targetBlock = target.getBlock();
 
                 if (component.isRequired()) {
-                    targetBlock.setBlockData(component.getDisplayData(facing), false);
+                    ServerLevel nmsLevel = ((CraftWorld) target.getWorld()).getHandle();
+                    BlockPos pos = new BlockPos(target.getBlockX(), target.getBlockY(), target.getBlockZ());
+                    nmsLevel.setBlock(pos, component.getNMSDisplayData(facing), 18);
+
                     MultiblockRegistry.instance.registerSecondaryBlock(target, device, component);
                 } else if (component.matches(targetBlock.getBlockData(), facing)) {
                     MultiblockComponentAddEvent addEvent = new MultiblockComponentAddEvent(device, blueprint, targetBlock, component);
@@ -121,11 +130,12 @@ public class Behaviors {
         Location placedLoc = placedBlock.getLocation();
 
         for (Device device : Device.getNearbyDevices(placedLoc, 15)) {
-            MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(device);
+            BlueprintContext context = new BlueprintContext(device.getLocationREADONLY(), RotationUtil.getFacingSafely(device), event.getPlayer(), event.getItemInHand(), device);
+            MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(device, context);
             if (blueprint != null) {
-                BlockFace facing = RotationUtil.getFacingSafely(device);
-                Location coreLoc = device.getLocationREADONLY();
-                Map<Vector, StructureComponent> structure = blueprint.buildStructure(coreLoc, facing, device, null);
+                BlockFace facing = context.getFacing();
+                Location coreLoc = context.getCoreLocation();
+                Map<Vector, StructureComponent> structure = blueprint.buildStructure(context);
 
                 for (Map.Entry<Vector, StructureComponent> entry : structure.entrySet()) {
                     Vector rotated = RotationUtil.rotateVector(entry.getKey(), facing);
@@ -154,7 +164,8 @@ public class Behaviors {
 
     public static void handleMultiblockBreak(BreakDeviceEvent event) {
         Device device = event.getDevice();
-        MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(device);
+        BlueprintContext context = new BlueprintContext(device.getLocationREADONLY(), RotationUtil.getFacingSafely(device), event.getPlayer(), null, device);
+        MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(device, context);
 
         if (blueprint != null) {
             disassembleMultiblock(device, blueprint, event.getPlayer(), false);
@@ -184,12 +195,15 @@ public class Behaviors {
                             BlockBreakEvent coreEvent = new BlockBreakEvent(coreBlock, event.getPlayer());
                             Bukkit.getPluginManager().callEvent(coreEvent);
                             if (!coreEvent.isCancelled()) {
-                                coreBlock.setType(Material.AIR);
+                                ServerLevel nmsLevel = ((CraftWorld) coreLoc.getWorld()).getHandle();
+                                BlockPos pos = new BlockPos(coreLoc.getBlockX(), coreLoc.getBlockY(), coreLoc.getBlockZ());
+                                nmsLevel.setBlock(pos, Blocks.AIR.defaultBlockState(), 18);
                             }
                         }
                     });
                 } else {
-                    MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(core);
+                    BlueprintContext context = new BlueprintContext(core.getLocationREADONLY(), RotationUtil.getFacingSafely(core), event.getPlayer(), null, core);
+                    MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(core, context);
                     MultiblockComponentRemoveEvent removeEvent = new MultiblockComponentRemoveEvent(core, blueprint, event.getBlock(), proxy.getComponent());
                     Bukkit.getPluginManager().callEvent(removeEvent);
 
@@ -239,7 +253,9 @@ public class Behaviors {
                 loc.getWorld().dropItemNaturally(loc, new ItemStack(loc.getBlock().getType()));
                 MultiblockRegistry.instance.unregisterSecondaryBlock(loc);
                 optionalProxy.removeDevice();
-                loc.getBlock().setType(Material.AIR, false);
+                ServerLevel nmsLevel = ((CraftWorld) loc.getWorld()).getHandle();
+                BlockPos pos = new BlockPos(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ());
+                nmsLevel.setBlock(pos, Blocks.AIR.defaultBlockState(), 18);
             }
         }
 
@@ -273,7 +289,9 @@ public class Behaviors {
                             BlockBreakEvent coreEvent = new BlockBreakEvent(coreBlock, player);
                             Bukkit.getPluginManager().callEvent(coreEvent);
                             if (!coreEvent.isCancelled()) {
-                                coreBlock.setType(Material.AIR);
+                                ServerLevel nmsLevel = ((CraftWorld) coreBlock.getWorld()).getHandle();
+                                BlockPos pos = new BlockPos(coreBlock.getX(), coreBlock.getY(), coreBlock.getZ());
+                                nmsLevel.setBlock(pos, Blocks.AIR.defaultBlockState(), 18);
                             }
                         } else {
                             handleValidationFailure(core);
@@ -288,9 +306,10 @@ public class Behaviors {
 
     public static void handleValidationFailure(Device coreDevice) {
         if (coreDevice == null || coreDevice.isRemoved()) return;
-        MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(coreDevice);
+        BlueprintContext context = new BlueprintContext(coreDevice.getLocationREADONLY(), RotationUtil.getFacingSafely(coreDevice), null, null, coreDevice);
+        MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(coreDevice, context);
         if (blueprint != null) {
-            Location coreLoc = coreDevice.getLocationREADONLY();
+            Location coreLoc = context.getCoreLocation();
             if (coreLoc.getWorld().isChunkLoaded(coreLoc.getBlockX() >> 4, coreLoc.getBlockZ() >> 4)) {
                 coreLoc.getWorld().dropItemNaturally(coreLoc, coreDevice.getDeviceStack());
                 coreDevice.dropInventory();
@@ -306,7 +325,8 @@ public class Behaviors {
     public static void handleOptionalValidationFailure(PortProxyDevice proxy) {
         Device core = proxy.getCoreDevice();
         if (core != null && !core.isRemoved()) {
-            MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(core);
+            BlueprintContext context = new BlueprintContext(core.getLocationREADONLY(), RotationUtil.getFacingSafely(core), null, null, core);
+            MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(core, context);
             MultiblockComponentRemoveEvent removeEvent = new MultiblockComponentRemoveEvent(core, blueprint, proxy.getLocationREADONLY().getBlock(), proxy.getComponent());
             Bukkit.getPluginManager().callEvent(removeEvent);
         }
@@ -317,8 +337,9 @@ public class Behaviors {
     public static void disassembleMultiblock(Device coreDevice, MultiblockBlueprint blueprint, Player player, boolean removeCoreBlock) {
         Location coreLoc = coreDevice.getLocationREADONLY();
         BlockFace facing = RotationUtil.getFacingSafely(coreDevice);
+        BlueprintContext context = new BlueprintContext(coreLoc, facing, player, null, coreDevice);
 
-        Map<Vector, StructureComponent> structure = blueprint.buildStructure(coreLoc, facing, coreDevice, null);
+        Map<Vector, StructureComponent> structure = blueprint.buildStructure(context);
         Map<Location, StructureComponent> structureBlocks = new HashMap<>(structure.size());
 
         for (Map.Entry<Vector, StructureComponent> entry : structure.entrySet()) {
@@ -332,7 +353,10 @@ public class Behaviors {
                     if (!entry.getValue().isRequired()) {
                         targetLoc.getWorld().dropItemNaturally(targetLoc, new ItemStack(block.getType()));
                     }
-                    block.setType(Material.AIR, false);
+                    ServerLevel nmsLevel = ((CraftWorld) targetLoc.getWorld()).getHandle();
+                    BlockPos pos = new BlockPos(targetLoc.getBlockX(), targetLoc.getBlockY(), targetLoc.getBlockZ());
+                    nmsLevel.setBlock(pos, Blocks.AIR.defaultBlockState(), 18);
+
                     MultiblockRegistry.instance.unregisterSecondaryBlock(targetLoc);
                     proxy.removeDevice();
                 }
@@ -343,7 +367,9 @@ public class Behaviors {
         Bukkit.getPluginManager().callEvent(disassembleEvent);
 
         if (removeCoreBlock && coreLoc.getWorld().isChunkLoaded(coreLoc.getBlockX() >> 4, coreLoc.getBlockZ() >> 4)) {
-            coreLoc.getBlock().setType(Material.AIR, false);
+            ServerLevel nmsLevel = ((CraftWorld) coreLoc.getWorld()).getHandle();
+            BlockPos pos = new BlockPos(coreLoc.getBlockX(), coreLoc.getBlockY(), coreLoc.getBlockZ());
+            nmsLevel.setBlock(pos, Blocks.AIR.defaultBlockState(), 18);
         }
         MultiblockRegistry.instance.unregisterCore(coreDevice);
     }

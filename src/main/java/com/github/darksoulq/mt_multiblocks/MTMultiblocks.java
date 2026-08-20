@@ -2,7 +2,9 @@ package com.github.darksoulq.mt_multiblocks;
 
 import com.MT.xxxtrigger50xxx.Devices.Device;
 import com.github.darksoulq.mt_multiblocks.command.MultiblockCommand;
-import com.github.darksoulq.mt_multiblocks.core.MultiblockRegistry;
+import com.github.darksoulq.mt_multiblocks.listener.SelectorListener;
+import com.github.darksoulq.mt_multiblocks.model.ModelTracker;
+import com.github.darksoulq.mt_multiblocks.registry.MultiblockRegistry;
 import com.github.darksoulq.mt_multiblocks.listener.MultiblockEventListener;
 import com.github.darksoulq.mt_multiblocks.port.BasicInteractPort;
 import com.github.darksoulq.mt_multiblocks.port.BasicItemPort;
@@ -32,12 +34,16 @@ public final class MTMultiblocks extends JavaPlugin {
 
         new MultiblockRegistry();
         getServer().getPluginManager().registerEvents(new MultiblockEventListener(), this);
+        getServer().getPluginManager().registerEvents(new SelectorListener(), this);
         MultiblockPreviewManager.start();
+        ModelTracker.start();
     }
 
     @Override
     public void onDisable() {
         MultiblockPreviewManager.stop();
+        ModelTracker.stop();
+
         if (MultiblockRegistry.instance != null) {
             MultiblockRegistry.instance.removeAllProxies();
             MultiblockRegistry.instance.save();

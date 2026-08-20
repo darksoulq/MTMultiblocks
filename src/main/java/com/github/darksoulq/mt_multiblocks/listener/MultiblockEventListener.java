@@ -4,9 +4,10 @@ import com.MT.xxxtrigger50xxx.API.MTEvents.BreakDeviceEvent;
 import com.MT.xxxtrigger50xxx.API.MTEvents.PlaceDeviceEvent;
 import com.MT.xxxtrigger50xxx.MineMain;
 import com.github.darksoulq.mt_multiblocks.core.Behaviors;
-import com.github.darksoulq.mt_multiblocks.core.MultiblockRegistry;
 import com.github.darksoulq.mt_multiblocks.events.MultiblockExplodeEvent;
+import com.github.darksoulq.mt_multiblocks.registry.MultiblockRegistry;
 import org.bukkit.Bukkit;
+import org.bukkit.Chunk;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -41,9 +42,10 @@ public class MultiblockEventListener implements Listener {
 
     @EventHandler
     public void onChunkLoad(ChunkLoadEvent event) {
+        Chunk chunk = event.getChunk();
         Bukkit.getScheduler().runTaskLater(MineMain.getPlugin(), () -> {
             if (MultiblockRegistry.instance != null) {
-                MultiblockRegistry.instance.restoreProxies();
+                MultiblockRegistry.instance.restoreProxies(chunk);
             }
         }, 2L);
     }

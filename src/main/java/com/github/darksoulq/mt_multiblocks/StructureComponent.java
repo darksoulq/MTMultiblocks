@@ -1,6 +1,7 @@
 package com.github.darksoulq.mt_multiblocks;
 
 import com.github.darksoulq.mt_multiblocks.port.Port;
+import net.minecraft.world.level.block.state.BlockState;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.BlockData;
 
@@ -11,4 +12,5 @@ public sealed interface StructureComponent extends Serializable permits Required
     boolean isRequired();
     boolean matches(BlockData blockData, BlockFace facing);
     BlockData getDisplayData(BlockFace facing);
+    BlockState getNMSDisplayData(BlockFace facing);
 }

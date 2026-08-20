@@ -21,11 +21,9 @@ public class RotationUtil {
             }
             if (device.getLocationREADONLY() != null) {
                 Block block = device.getLocationREADONLY().getBlock();
-                if (block != null) {
-                    BlockData data = block.getBlockData();
-                    if (data instanceof Directional dir) return dir.getFacing();
-                    if (data instanceof Rotatable rot) return rot.getRotation();
-                }
+                BlockData data = block.getBlockData();
+                if (data instanceof Directional dir) return dir.getFacing();
+                if (data instanceof Rotatable rot) return rot.getRotation();
             }
         } catch (Exception ignored) {}
         return BlockFace.NORTH;

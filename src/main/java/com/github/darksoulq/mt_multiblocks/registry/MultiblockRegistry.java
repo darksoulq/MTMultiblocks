@@ -1,14 +1,18 @@
-package com.github.darksoulq.mt_multiblocks.core;
+package com.github.darksoulq.mt_multiblocks.registry;
 
 import com.MT.triggersUtility.Saveable;
 import com.MT.triggersUtility.TUMaths;
 import com.MT.xxxtrigger50xxx.Devices.Device;
+import com.github.darksoulq.mt_multiblocks.BlueprintContext;
 import com.github.darksoulq.mt_multiblocks.MTMultiblocks;
 import com.github.darksoulq.mt_multiblocks.MultiblockBlueprint;
 import com.github.darksoulq.mt_multiblocks.StructureComponent;
+import com.github.darksoulq.mt_multiblocks.core.PortProxyDevice;
+import com.github.darksoulq.mt_multiblocks.core.ProxyFactory;
 import com.github.darksoulq.mt_multiblocks.port.Port;
 import com.github.darksoulq.mt_multiblocks.util.MultiblockUtil;
 import com.github.darksoulq.mt_multiblocks.util.RotationUtil;
+import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.block.BlockFace;
 import org.bukkit.util.Vector;
@@ -33,12 +37,18 @@ public class MultiblockRegistry {
     public Map<String, Port> secondaryToPortMap;
     public transient Map<Class<? extends Port>, ProxyFactory> proxyFactories;
 
+    private transient Map<Location, Location> parsedSecondaryToCore;
+    private transient Map<String, Map<Long, List<Location>>> chunkProxyCache;
+
     private static Field allDevicesField;
+    private static Field readDevicesField;
 
     static {
         try {
             allDevicesField = Device.class.getDeclaredField("allDevices");
             allDevicesField.setAccessible(true);
+            readDevicesField = Device.class.getDeclaredField("readDevices");
+            readDevicesField.setAccessible(true);
         } catch (NoSuchFieldException e) {
             e.printStackTrace();
         }
@@ -49,6 +59,8 @@ public class MultiblockRegistry {
         this.secondaryToCoreMap = new ConcurrentHashMap<>();
         this.secondaryToPortMap = new ConcurrentHashMap<>();
         this.proxyFactories = new ConcurrentHashMap<>();
+        this.parsedSecondaryToCore = new ConcurrentHashMap<>();
+        this.chunkProxyCache = new ConcurrentHashMap<>();
         load();
         restoreProxies();
     }
@@ -67,13 +79,35 @@ public class MultiblockRegistry {
     @SuppressWarnings("unchecked")
     public void load() {
         File file = new File(MTMultiblocks.getInstance().getDataFolder(), "registry.dat");
-        if (!file.exists()) return;
-        try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(file))) {
-            this.secondaryToCoreMap = new ConcurrentHashMap<>((Map<String, String>) ois.readObject());
-            this.secondaryToPortMap = new ConcurrentHashMap<>((Map<String, Port>) ois.readObject());
-        } catch (Exception e) {
-            e.printStackTrace();
+        if (file.exists()) {
+            try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(file))) {
+                this.secondaryToCoreMap = new ConcurrentHashMap<>((Map<String, String>) ois.readObject());
+                this.secondaryToPortMap = new ConcurrentHashMap<>((Map<String, Port>) ois.readObject());
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
+        rebuildCaches();
+    }
+
+    public void rebuildCaches() {
+        parsedSecondaryToCore.clear();
+        chunkProxyCache.clear();
+        for (Map.Entry<String, String> entry : secondaryToCoreMap.entrySet()) {
+            Location secLoc = TUMaths.getStringLocation(entry.getKey());
+            Location coreLoc = TUMaths.getStringLocation(entry.getValue());
+            if (secLoc == null || coreLoc == null) continue;
+
+            parsedSecondaryToCore.put(secLoc, coreLoc);
+            long chunkKey = getChunkKey(secLoc.getBlockX() >> 4, secLoc.getBlockZ() >> 4);
+            chunkProxyCache.computeIfAbsent(secLoc.getWorld().getName(), k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(chunkKey, k -> new ArrayList<>())
+                .add(secLoc);
+        }
+    }
+
+    public static long getChunkKey(int x, int z) {
+        return ((long) x & 0xFFFFFFFFL) | (((long) z & 0xFFFFFFFFL) << 32);
     }
 
     public void registerProxyFactory(Class<? extends Port> portClass, ProxyFactory factory) {
@@ -82,8 +116,16 @@ public class MultiblockRegistry {
 
     public void registerSecondaryBlock(Location secondaryLoc, Device coreDevice, StructureComponent component) {
         String secStr = TUMaths.locationString(secondaryLoc);
-        secondaryToCoreMap.put(secStr, TUMaths.locationString(coreDevice.getLocationREADONLY()));
+        Location coreLoc = coreDevice.getLocationREADONLY();
+        secondaryToCoreMap.put(secStr, TUMaths.locationString(coreLoc));
         secondaryToPortMap.put(secStr, component.getPort());
+
+        parsedSecondaryToCore.put(secondaryLoc, coreLoc);
+        long chunkKey = getChunkKey(secondaryLoc.getBlockX() >> 4, secondaryLoc.getBlockZ() >> 4);
+        chunkProxyCache.computeIfAbsent(secondaryLoc.getWorld().getName(), k -> new ConcurrentHashMap<>())
+            .computeIfAbsent(chunkKey, k -> new ArrayList<>())
+            .add(secondaryLoc);
+
         bindProxy(secondaryLoc, coreDevice, component);
     }
 
@@ -91,6 +133,15 @@ public class MultiblockRegistry {
         String secStr = TUMaths.locationString(secondaryLoc);
         secondaryToCoreMap.remove(secStr);
         secondaryToPortMap.remove(secStr);
+
+        parsedSecondaryToCore.remove(secondaryLoc);
+        long chunkKey = getChunkKey(secondaryLoc.getBlockX() >> 4, secondaryLoc.getBlockZ() >> 4);
+        Map<Long, List<Location>> wMap = chunkProxyCache.get(secondaryLoc.getWorld().getName());
+        if (wMap != null) {
+            List<Location> list = wMap.get(chunkKey);
+            if (list != null) list.remove(secondaryLoc);
+        }
+
         unbindProxy(secondaryLoc);
     }
 
@@ -101,6 +152,14 @@ public class MultiblockRegistry {
                 Location secLoc = TUMaths.getStringLocation(entry.getKey());
                 unbindProxy(secLoc);
                 secondaryToPortMap.remove(entry.getKey());
+
+                parsedSecondaryToCore.remove(secLoc);
+                long chunkKey = getChunkKey(secLoc.getBlockX() >> 4, secLoc.getBlockZ() >> 4);
+                Map<Long, List<Location>> wMap = chunkProxyCache.get(secLoc.getWorld().getName());
+                if (wMap != null) {
+                    List<Location> list = wMap.get(chunkKey);
+                    if (list != null) list.remove(secLoc);
+                }
                 return true;
             }
             return false;
@@ -123,6 +182,7 @@ public class MultiblockRegistry {
     private void bindProxy(Location secondaryLoc, Device coreDevice, StructureComponent component) {
         try {
             HashMap<Location, Device> allDevices = (HashMap<Location, Device>) allDevicesField.get(null);
+            ArrayList<Device> readDevices = (ArrayList<Device>) readDevicesField.get(null);
             ProxyFactory factory = proxyFactories.get(component.getPort().getClass());
             Device proxy;
             if (factory != null) {
@@ -131,6 +191,7 @@ public class MultiblockRegistry {
                 proxy = new PortProxyDevice(secondaryLoc, coreDevice, component);
             }
             allDevices.put(secondaryLoc, proxy);
+            if (!readDevices.contains(proxy)) readDevices.add(proxy);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -140,7 +201,11 @@ public class MultiblockRegistry {
     private void unbindProxy(Location secondaryLoc) {
         try {
             HashMap<Location, Device> allDevices = (HashMap<Location, Device>) allDevicesField.get(null);
-            allDevices.remove(secondaryLoc);
+            Device proxy = allDevices.remove(secondaryLoc);
+            if (proxy != null) {
+                ArrayList<Device> readDevices = (ArrayList<Device>) readDevicesField.get(null);
+                readDevices.remove(proxy);
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -218,36 +283,82 @@ public class MultiblockRegistry {
         }
     }
 
+    public void restoreProxies(Chunk chunk) {
+        if (parsedSecondaryToCore == null || parsedSecondaryToCore.isEmpty()) return;
+        Map<Long, List<Location>> worldChunks = chunkProxyCache.get(chunk.getWorld().getName());
+        if (worldChunks == null) return;
+
+        long chunkKey = getChunkKey(chunk.getX(), chunk.getZ());
+        List<Location> locations = worldChunks.get(chunkKey);
+        if (locations == null || locations.isEmpty()) return;
+
+        Map<Device, Map<Vector, StructureComponent>> structureCache = new HashMap<>();
+        Map<Device, BlockFace> facingCache = new HashMap<>();
+
+        try {
+            @SuppressWarnings("unchecked")
+            HashMap<Location, Device> allDevices = (HashMap<Location, Device>) allDevicesField.get(null);
+            for (Location secLoc : locations) {
+                if (allDevices != null && allDevices.containsKey(secLoc)) continue;
+                Location coreLoc = parsedSecondaryToCore.get(secLoc);
+                if (coreLoc == null) continue;
+                restoreProxySingle(secLoc, coreLoc, structureCache, facingCache);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     public void restoreProxies() {
-        if (secondaryToCoreMap == null) return;
-        for (Map.Entry<String, String> entry : secondaryToCoreMap.entrySet()) {
-            Location secLoc = TUMaths.getStringLocation(entry.getKey());
-            Location coreLoc = TUMaths.getStringLocation(entry.getValue());
+        if (parsedSecondaryToCore == null) return;
+        Map<Device, Map<Vector, StructureComponent>> structureCache = new HashMap<>();
+        Map<Device, BlockFace> facingCache = new HashMap<>();
 
-            if (secLoc != null && coreLoc != null) {
-                Device coreDevice = Device.getDevice(coreLoc);
-                if (coreDevice != null) {
-                    MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(coreDevice);
-                    if (blueprint != null) {
-                        BlockFace facing = RotationUtil.getFacingSafely(coreDevice);
-                        Map<Vector, StructureComponent> structure = blueprint.buildStructure(coreLoc, facing, coreDevice, null);
-                        Vector relative = secLoc.clone().subtract(coreLoc).toVector();
-                        Vector original = RotationUtil.rotateVector(relative, facing.getOppositeFace());
-
-                        StructureComponent matchedComponent = null;
-                        for (Map.Entry<Vector, StructureComponent> compEntry : structure.entrySet()) {
-                            if (compEntry.getKey().distanceSquared(original) < 0.1) {
-                                matchedComponent = compEntry.getValue();
-                                break;
-                            }
-                        }
-
-                        if (matchedComponent != null) {
-                            bindProxy(secLoc, coreDevice, matchedComponent);
-                        }
-                    }
+        try {
+            @SuppressWarnings("unchecked")
+            HashMap<Location, Device> allDevices = (HashMap<Location, Device>) allDevicesField.get(null);
+            for (Map.Entry<Location, Location> entry : parsedSecondaryToCore.entrySet()) {
+                Location secLoc = entry.getKey();
+                if (allDevices != null && allDevices.containsKey(secLoc)) continue;
+                if (secLoc.getWorld().isChunkLoaded(secLoc.getBlockX() >> 4, secLoc.getBlockZ() >> 4)) {
+                    restoreProxySingle(secLoc, entry.getValue(), structureCache, facingCache);
                 }
             }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void restoreProxySingle(Location secLoc, Location coreLoc, Map<Device, Map<Vector, StructureComponent>> structureCache, Map<Device, BlockFace> facingCache) {
+        Device coreDevice = Device.getDevice(coreLoc);
+        if (coreDevice == null) return;
+
+        Map<Vector, StructureComponent> structure = structureCache != null ? structureCache.get(coreDevice) : null;
+        BlockFace facing = facingCache != null ? facingCache.get(coreDevice) : null;
+
+        if (structure == null) {
+            BlueprintContext context = new BlueprintContext(coreDevice);
+            MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(coreDevice, context);
+            if (blueprint == null) return;
+            facing = context.getFacing();
+            structure = blueprint.buildStructure(context);
+            if (structureCache != null) structureCache.put(coreDevice, structure);
+            if (facingCache != null) facingCache.put(coreDevice, facing);
+        }
+
+        Vector relative = secLoc.clone().subtract(coreLoc).toVector();
+        Vector original = RotationUtil.rotateVector(relative, facing.getOppositeFace());
+
+        StructureComponent matchedComponent = null;
+        for (Map.Entry<Vector, StructureComponent> compEntry : structure.entrySet()) {
+            if (compEntry.getKey().distanceSquared(original) < 0.1) {
+                matchedComponent = compEntry.getValue();
+                break;
+            }
+        }
+
+        if (matchedComponent != null) {
+            bindProxy(secLoc, coreDevice, matchedComponent);
         }
     }
 }

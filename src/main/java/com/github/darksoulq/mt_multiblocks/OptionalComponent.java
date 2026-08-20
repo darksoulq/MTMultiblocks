@@ -2,6 +2,7 @@ package com.github.darksoulq.mt_multiblocks;
 
 import com.github.darksoulq.mt_multiblocks.choice.ComponentChoice;
 import com.github.darksoulq.mt_multiblocks.port.Port;
+import net.minecraft.world.level.block.state.BlockState;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.data.BlockData;
 
@@ -37,5 +38,10 @@ public final class OptionalComponent implements StructureComponent {
     @Override
     public BlockData getDisplayData(BlockFace facing) {
         return choice.getDisplayData(facing);
+    }
+
+    @Override
+    public BlockState getNMSDisplayData(BlockFace facing) {
+        return choice.getNMSDisplayData(facing);
     }
 }
