@@ -2,12 +2,8 @@ package com.github.darksoulq.mt_multiblocks.listener;
 
 import com.MT.xxxtrigger50xxx.API.MTEvents.BreakDeviceEvent;
 import com.MT.xxxtrigger50xxx.API.MTEvents.PlaceDeviceEvent;
-import com.MT.xxxtrigger50xxx.MineMain;
 import com.github.darksoulq.mt_multiblocks.core.Behaviors;
 import com.github.darksoulq.mt_multiblocks.events.MultiblockExplodeEvent;
-import com.github.darksoulq.mt_multiblocks.registry.MultiblockRegistry;
-import org.bukkit.Bukkit;
-import org.bukkit.Chunk;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -26,29 +22,8 @@ import org.bukkit.event.block.MoistureChangeEvent;
 import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.event.world.ChunkLoadEvent;
-import org.bukkit.event.world.WorldLoadEvent;
 
 public class MultiblockEventListener implements Listener {
-
-    @EventHandler
-    public void onWorldLoad(WorldLoadEvent event) {
-        Bukkit.getScheduler().runTaskLater(MineMain.getPlugin(), () -> {
-            if (MultiblockRegistry.instance != null) {
-                MultiblockRegistry.instance.restoreProxies();
-            }
-        }, 5L);
-    }
-
-    @EventHandler
-    public void onChunkLoad(ChunkLoadEvent event) {
-        Chunk chunk = event.getChunk();
-        Bukkit.getScheduler().runTaskLater(MineMain.getPlugin(), () -> {
-            if (MultiblockRegistry.instance != null) {
-                MultiblockRegistry.instance.restoreProxies(chunk);
-            }
-        }, 2L);
-    }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onMultiblockPlace(PlaceDeviceEvent event) {

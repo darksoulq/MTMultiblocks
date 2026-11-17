@@ -3,6 +3,8 @@ package com.github.darksoulq.mt_multiblocks.core;
 import com.MT.triggersUtility.TUMaths;
 import com.MT.xxxtrigger50xxx.Devices.Device;
 import com.MT.xxxtrigger50xxx.PowerGrid.PowerGrid;
+import com.github.darksoulq.mt_multiblocks.BlueprintContext;
+import com.github.darksoulq.mt_multiblocks.MultiblockBlueprint;
 import com.github.darksoulq.mt_multiblocks.StructureComponent;
 import com.github.darksoulq.mt_multiblocks.port.InteractPort;
 import com.github.darksoulq.mt_multiblocks.port.ItemPort;
@@ -10,6 +12,8 @@ import com.github.darksoulq.mt_multiblocks.port.LiquidPort;
 import com.github.darksoulq.mt_multiblocks.port.Port;
 import com.github.darksoulq.mt_multiblocks.port.RedstonePort;
 import com.github.darksoulq.mt_multiblocks.port.TickablePort;
+import com.github.darksoulq.mt_multiblocks.registry.MultiblockRegistry;
+import com.github.darksoulq.mt_multiblocks.util.MultiblockUtil;
 import com.github.darksoulq.mt_multiblocks.util.RotationUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -22,48 +26,67 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.util.Vector;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Map;
 
-public class PortProxyDevice extends Device {
-    private final transient Device coreDevice;
-    private final transient StructureComponent component;
-    private final transient Port port;
+public class PortProxyDevice extends AddonDevice {
+    private String coreLocationString;
+    private transient Device coreDevice;
+    private transient StructureComponent component;
+    private transient Port port;
     private byte tickCounter = 0;
     private transient boolean shuttingDown = false;
 
-    private static Field locField;
-    private static Field cachedLocField;
-
-    static {
-        try {
-            locField = Device.class.getDeclaredField("location");
-            locField.setAccessible(true);
-            cachedLocField = Device.class.getDeclaredField("cachedLocation");
-            cachedLocField.setAccessible(true);
-        } catch (Exception ignored) {}
-    }
-
     public PortProxyDevice(Location portLocation, Device coreDevice, StructureComponent component) {
-        super(null);
-
-        try {
-            if (locField != null && cachedLocField != null) {
-                locField.set(this, TUMaths.locationString(portLocation));
-                cachedLocField.set(this, portLocation.clone());
-            }
-        } catch (Exception ignored) {}
-
+        super(portLocation);
+        this.coreLocationString = TUMaths.locationString(coreDevice.getLocationREADONLY());
         this.coreDevice = coreDevice;
         this.component = component;
         this.port = component.getPort();
-        this.setSave(false);
-        this.setDelete(true);
         this.standardMoverBehavior = true;
         this.chainingMoverBehavior = false;
         this.deviceName = coreDevice.getName() + " [Port]";
+    }
+
+    @Override
+    public void onCreate(boolean isFirstTime) {
+        super.onCreate(isFirstTime);
+        if (!isFirstTime) {
+            Location coreLoc = TUMaths.getStringLocation(coreLocationString);
+            coreDevice = Device.getDevice(coreLoc);
+            if (coreDevice != null) {
+                this.deviceName = coreDevice.getName() + " [Port]";
+                BlueprintContext context = new BlueprintContext(coreDevice);
+                MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(coreDevice, context);
+                if (blueprint != null) {
+                    BlockFace facing = context.getFacing();
+                    Map<Vector, StructureComponent> structure = blueprint.buildStructure(context);
+                    
+                    Vector relative = this.getLocationREADONLY().clone().subtract(coreLoc).toVector();
+                    Vector original = RotationUtil.rotateVector(relative, facing.getOppositeFace());
+                    
+                    for (Map.Entry<Vector, StructureComponent> compEntry : structure.entrySet()) {
+                        if (compEntry.getKey().distanceSquared(original) < 0.1) {
+                            this.component = compEntry.getValue();
+                            this.port = this.component.getPort();
+                            break;
+                        }
+                    }
+                    if (this.component != null) {
+                        MultiblockRegistry.instance.registerSecondaryBlock(this.getLocationREADONLY(), coreDevice, component);
+                    } else {
+                        this.removeDevice();
+                    }
+                } else {
+                    this.removeDevice();
+                }
+            } else {
+                this.removeDevice();
+            }
+        }
     }
 
     public void prepareForShutdown() {
@@ -83,7 +106,7 @@ public class PortProxyDevice extends Device {
     }
 
     public boolean isRequired() {
-        return component.isRequired();
+        return component != null && component.isRequired();
     }
 
     @Override
@@ -182,10 +205,10 @@ public class PortProxyDevice extends Device {
     }
 
     @Override
-    public ArrayList<LiquidType> getLiquidTypes() {
+    public ArrayList<Device.LiquidType> getLiquidTypes() {
         if (shuttingDown) return new ArrayList<>();
         if (coreDevice != null && port instanceof LiquidPort liquidPort) {
-            LiquidType[] types = liquidPort.getLiquidTypes();
+            Device.LiquidType[] types = liquidPort.getLiquidTypes();
             if (types != null && types.length > 0) {
                 return new ArrayList<>(Arrays.asList(types));
             }
@@ -195,40 +218,40 @@ public class PortProxyDevice extends Device {
     }
 
     @Override
-    public void addLiquidType(LiquidType type, int max) {
+    public void addLiquidType(Device.LiquidType type, int max) {
         if (coreDevice != null && port instanceof LiquidPort) coreDevice.addLiquidType(type, max);
     }
 
     @Override
-    public void removeLiquidType(LiquidType type) {
+    public void removeLiquidType(Device.LiquidType type) {
         if (coreDevice != null && port instanceof LiquidPort) coreDevice.removeLiquidType(type);
     }
 
     @Override
-    public int getStoredLiquid(LiquidType type) {
+    public int getStoredLiquid(Device.LiquidType type) {
         if (shuttingDown) return 0;
         return (coreDevice != null && port instanceof LiquidPort) ? coreDevice.getStoredLiquid(type) : 0;
     }
 
     @Override
-    public void setStoredLiquid(LiquidType type, int amount) {
+    public void setStoredLiquid(Device.LiquidType type, int amount) {
         if (coreDevice != null && port instanceof LiquidPort) coreDevice.setStoredLiquid(type, amount);
     }
 
     @Override
-    public int getMaxLiquid(LiquidType type) {
+    public int getMaxLiquid(Device.LiquidType type) {
         return (coreDevice != null && port instanceof LiquidPort) ? coreDevice.getMaxLiquid(type) : 0;
     }
 
     @Override
-    public void setMaxLiquid(LiquidType type, int amount) {
+    public void setMaxLiquid(Device.LiquidType type, int amount) {
         if (coreDevice != null && port instanceof LiquidPort) coreDevice.setMaxLiquid(type, amount);
     }
 
     @Override
-    public void addLiquid(LiquidType type, int amount) {
+    public void addLiquid(Device.LiquidType type, int amount) {
         if (coreDevice != null && port instanceof LiquidPort liquidPort && liquidPort.isInput()) {
-            LiquidType[] allowed = liquidPort.getLiquidTypes();
+            Device.LiquidType[] allowed = liquidPort.getLiquidTypes();
             if (allowed == null || allowed.length == 0 || containsLiquid(allowed, type)) {
                 coreDevice.addLiquid(type, amount);
             }
@@ -236,9 +259,9 @@ public class PortProxyDevice extends Device {
     }
 
     @Override
-    public void removeLiquid(LiquidType type, int amount) {
+    public void removeLiquid(Device.LiquidType type, int amount) {
         if (coreDevice != null && port instanceof LiquidPort liquidPort && liquidPort.isOutput()) {
-            LiquidType[] allowed = liquidPort.getLiquidTypes();
+            Device.LiquidType[] allowed = liquidPort.getLiquidTypes();
             if (allowed == null || allowed.length == 0 || containsLiquid(allowed, type)) {
                 coreDevice.removeLiquid(type, amount);
             }
@@ -246,14 +269,14 @@ public class PortProxyDevice extends Device {
     }
 
     @Override
-    public boolean hasLiquid(LiquidType type, int amount) {
+    public boolean hasLiquid(Device.LiquidType type, int amount) {
         return coreDevice != null && port instanceof LiquidPort && coreDevice.hasLiquid(type, amount);
     }
 
     @Override
-    public boolean acceptsLiquid(LiquidType type) {
+    public boolean acceptsLiquid(Device.LiquidType type) {
         if (coreDevice != null && port instanceof LiquidPort liquidPort && liquidPort.isInput()) {
-            LiquidType[] allowed = liquidPort.getLiquidTypes();
+            Device.LiquidType[] allowed = liquidPort.getLiquidTypes();
             if (allowed == null || allowed.length == 0 || containsLiquid(allowed, type)) {
                 return coreDevice.acceptsLiquid(type);
             }
@@ -261,8 +284,8 @@ public class PortProxyDevice extends Device {
         return false;
     }
 
-    private boolean containsLiquid(LiquidType[] array, LiquidType type) {
-        for (LiquidType t : array) if (t == type) return true;
+    private boolean containsLiquid(Device.LiquidType[] array, Device.LiquidType type) {
+        for (Device.LiquidType t : array) if (t == type) return true;
         return false;
     }
 
@@ -308,7 +331,7 @@ public class PortProxyDevice extends Device {
             BlockFace face = RotationUtil.getFacingSafely(coreDevice);
             Block block = loc.getBlock();
 
-            if (!component.matches(block.getBlockData(), face)) {
+            if (component != null && !component.matches(block.getBlockData(), face)) {
                 if (isRequired()) {
                     Behaviors.handleValidationFailure(coreDevice);
                 } else {

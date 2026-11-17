@@ -13,6 +13,7 @@ import com.github.darksoulq.mt_multiblocks.events.MultiblockComponentRemoveEvent
 import com.github.darksoulq.mt_multiblocks.events.MultiblockDisassembleEvent;
 import com.github.darksoulq.mt_multiblocks.events.MultiblockExplodeEvent;
 import com.github.darksoulq.mt_multiblocks.port.RedstonePort;
+import com.github.darksoulq.mt_multiblocks.preview.MultiblockPreviewManager;
 import com.github.darksoulq.mt_multiblocks.registry.MultiblockRegistry;
 import com.github.darksoulq.mt_multiblocks.util.MultiblockUtil;
 import com.github.darksoulq.mt_multiblocks.util.RotationUtil;
@@ -56,12 +57,17 @@ public class Behaviors {
 
     public static void handleMultiblockPlace(PlaceDeviceEvent event) {
         Device device = event.getDevice();
-        BlueprintContext context = new BlueprintContext(device.getLocationREADONLY(), RotationUtil.getFacingSafely(device), event.getPlayer(), event.getPlayer().getInventory().getItemInMainHand(), device);
+        BlockFace facing = MultiblockPreviewManager.getPlacementFacingHorizontal(event.getPlayer()).getOppositeFace();
+
+        if (device instanceof MultiblockDevice md) {
+            md.setFacing(facing);
+        }
+
+        BlueprintContext context = new BlueprintContext(device.getLocationREADONLY(), facing, event.getPlayer(), event.getPlayer().getInventory().getItemInMainHand(), device);
         MultiblockBlueprint blueprint = MultiblockUtil.getTargetBlueprint(device, context);
 
         if (blueprint != null) {
             Location coreLoc = context.getCoreLocation();
-            BlockFace facing = context.getFacing();
 
             ValidationResult validation = blueprint.canPlace(context);
             if (!validation.isValid()) {
@@ -174,11 +180,6 @@ public class Behaviors {
 
     public static void handleBlockBreak(BlockBreakEvent event) {
         Device device = Device.getDevice(event.getBlock().getLocation());
-
-        if (device == null && MultiblockRegistry.instance != null) {
-            MultiblockRegistry.instance.restoreProxies();
-            device = Device.getDevice(event.getBlock().getLocation());
-        }
 
         if (device instanceof PortProxyDevice proxy) {
             Device core = proxy.getCoreDevice();

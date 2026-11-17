@@ -2,8 +2,8 @@ import net.thebugmc.gradle.sonatypepublisher.PublishingType
 
 plugins {
     id("java-library")
-    id("io.papermc.paperweight.userdev") version "2.0.0-beta.21"
-    id("xyz.jpenilla.run-paper") version "3.0.2"
+    id("io.papermc.paperweight.userdev") version "2.0.0-beta.24"
+    id("xyz.jpenilla.run-paper") version "3.1.0"
     id("maven-publish")
     signing
     id("net.thebugmc.gradle.sonatype-central-portal-publisher") version "1.2.4"
@@ -18,7 +18,7 @@ repositories {
 }
 
 dependencies {
-    paperweight.paperDevBundle("26.2.build.+")
+    paperweight.paperDevBundle("26.3.build.+")
     compileOnly("com.MT:Minetorio:1.0.1")
 }
 
@@ -59,7 +59,7 @@ centralPortal {
     pom {
         name = "MTMultiblocks"
         description = "Minetorio Multiblocks library"
-        url = "https://github.com/yourname/yourrepo"
+        url = "https://github.com/darksoulq/MTMultiblocks"
         licenses {
             license {
                 name = "MIT License"
@@ -68,14 +68,14 @@ centralPortal {
         }
         developers {
             developer {
-                id = "yourid"
-                name = "yourname"
+                id = "darksoulq"
+                name = "DarksoulQ"
             }
         }
         scm {
-            connection = "scm:git:git://github.com/yourname/yourrepo.git"
-            developerConnection = "scm:git:ssh://github.com/yourname/yourrepo.git"
-            url = "https://github.com/yourname/yourrepo"
+            connection = "scm:git:git://github.com/darksoulq/MTMultiblocks.git"
+            developerConnection = "scm:git:ssh://github.com/darksoulq/MTMultiblocks.git"
+            url = "https://github.com/darksoulq/MTMultiblocks"
         }
     }
 }

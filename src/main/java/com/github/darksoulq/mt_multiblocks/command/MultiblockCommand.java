@@ -1,13 +1,11 @@
 package com.github.darksoulq.mt_multiblocks.command;
 
 import com.github.darksoulq.mt_multiblocks.MTMultiblocks;
+import com.github.darksoulq.mt_multiblocks.core.AddonDeviceDatabase;
 import com.mojang.brigadier.Command;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import io.papermc.paper.command.brigadier.CommandSourceStack;
 import io.papermc.paper.command.brigadier.Commands;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -15,9 +13,6 @@ import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.Vector;
 
 import java.io.File;
@@ -40,9 +35,6 @@ public class MultiblockCommand {
                 .then(Commands.literal("pos2")
                     .executes(ctx -> executePos2(ctx.getSource()))
                 )
-                .then(Commands.literal("selector")
-                    .executes(ctx -> executeSelector(ctx.getSource()))
-                )
                 .then(Commands.literal("save")
                     .then(Commands.argument("filename", StringArgumentType.word())
                         .executes(ctx -> executeSave(ctx.getSource(), StringArgumentType.getString(ctx, "filename")))
@@ -52,40 +44,17 @@ public class MultiblockCommand {
         );
     }
 
-    private static int executeSelector(CommandSourceStack source) {
-        if (!(source.getSender() instanceof Player player)) return 0;
-
-        ItemStack selector = new ItemStack(Material.GOLDEN_AXE);
-        ItemMeta meta = selector.getItemMeta();
-        if (meta != null) {
-            meta.itemName(Component.text("Multiblock Selector").color(NamedTextColor.YELLOW).decoration(TextDecoration.ITALIC, false));
-            meta.lore(List.of(
-                Component.text("Left-Click: ").color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)
-                    .append(Component.text("Pos 1").color(NamedTextColor.WHITE)),
-                Component.text("Right-Click: ").color(NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false)
-                    .append(Component.text("Pos 2").color(NamedTextColor.WHITE))
-            ));
-
-            meta.getPersistentDataContainer().set(SELECTOR_KEY, PersistentDataType.BYTE, (byte) 1);
-            selector.setItemMeta(meta);
-        }
-
-        player.getInventory().addItem(selector);
-        player.sendMessage(Component.text("Given Multiblock Selector.", NamedTextColor.GREEN));
-        return Command.SINGLE_SUCCESS;
-    }
-
     private static int executePos1(CommandSourceStack source) {
         if (!(source.getSender() instanceof Player player)) return 0;
         SelectionManager.pos1.put(player.getUniqueId(), player.getLocation().getBlock().getLocation());
-        player.sendMessage(Component.text("Position 1 set.", NamedTextColor.GREEN));
+        player.sendMessage("Position 1 set.");
         return Command.SINGLE_SUCCESS;
     }
 
     private static int executePos2(CommandSourceStack source) {
         if (!(source.getSender() instanceof Player player)) return 0;
         SelectionManager.pos2.put(player.getUniqueId(), player.getLocation().getBlock().getLocation());
-        player.sendMessage(Component.text("Position 2 set.", NamedTextColor.GREEN));
+        player.sendMessage("Position 2 set.");
         return Command.SINGLE_SUCCESS;
     }
 
@@ -96,7 +65,7 @@ public class MultiblockCommand {
         Location p2 = SelectionManager.pos2.get(uuid);
 
         if (p1 == null || p2 == null || !p1.getWorld().equals(p2.getWorld())) {
-            player.sendMessage(Component.text("You must set pos1 and pos2 in the same world.", NamedTextColor.RED));
+            player.sendMessage("You must set pos1 and pos2 in the same world.");
             return 0;
         }
 
@@ -124,12 +93,12 @@ public class MultiblockCommand {
         }
 
         if (bedrockCount == 0) {
-            player.sendMessage(Component.text("No bedrock found in selection. Multiblocks require exactly 1 bedrock block as the core placeholder.", NamedTextColor.RED));
+            player.sendMessage("No bedrock found in selection. Multiblocks require exactly 1 bedrock block as the core placeholder.");
             return 0;
         }
 
         if (bedrockCount > 1) {
-            player.sendMessage(Component.text("More than 1 bedrock found in selection. Only 1 bedrock can exist to mark the core.", NamedTextColor.RED));
+            player.sendMessage("More than 1 bedrock found in selection. Only 1 bedrock can exist to mark the core.");
             return 0;
         }
 
@@ -154,6 +123,12 @@ public class MultiblockCommand {
 
                         config.set("palette." + paletteKey + ".block_data", dataString);
                         config.set("palette." + paletteKey + ".port.type", "mt_multiblocks:structural_port");
+
+                        config.setComments("palette." + paletteKey, List.of(
+                            "To make this optional with component choices, either:",
+                            "1) Change 'block_data' to a list of strings (for multiple specific blocks)",
+                            "2) Remove 'block_data' entirely and instead use 'tag' and 'default_block_data'"
+                        ));
                     }
 
                     Vector offset = block.getLocation().toVector().subtract(coreLoc.toVector());
@@ -164,6 +139,12 @@ public class MultiblockCommand {
                     config.set(path + ".z", offset.getBlockZ());
                     config.set(path + ".palette_key", paletteKey);
                     config.set(path + ".required", true);
+
+                    if (blockIndex == 1) {
+                        config.setComments(path, List.of(
+                            "Set 'required: false' to make this an OptionalComponent instead of RequiredComponent"
+                        ));
+                    }
                 }
             }
         }
@@ -172,9 +153,9 @@ public class MultiblockCommand {
         file.getParentFile().mkdirs();
         try {
             config.save(file);
-            player.sendMessage(Component.text("Blueprint saved to " + file.getName(), NamedTextColor.GREEN));
+            player.sendMessage("Blueprint saved to " + file.getName());
         } catch (IOException e) {
-            player.sendMessage(Component.text("Failed to save blueprint: " + e.getMessage(), NamedTextColor.RED));
+            player.sendMessage("Failed to save blueprint: " + e.getMessage());
             e.printStackTrace();
         }
 

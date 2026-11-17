@@ -2,18 +2,20 @@ package com.github.darksoulq.mt_multiblocks;
 
 import com.MT.xxxtrigger50xxx.Devices.Device;
 import com.github.darksoulq.mt_multiblocks.command.MultiblockCommand;
+import com.github.darksoulq.mt_multiblocks.core.AddonDeviceDatabase;
+import com.github.darksoulq.mt_multiblocks.listener.MultiblockEventListener;
 import com.github.darksoulq.mt_multiblocks.listener.SelectorListener;
 import com.github.darksoulq.mt_multiblocks.model.ModelTracker;
-import com.github.darksoulq.mt_multiblocks.registry.MultiblockRegistry;
-import com.github.darksoulq.mt_multiblocks.listener.MultiblockEventListener;
 import com.github.darksoulq.mt_multiblocks.port.BasicInteractPort;
 import com.github.darksoulq.mt_multiblocks.port.BasicItemPort;
 import com.github.darksoulq.mt_multiblocks.port.BasicLiquidPort;
 import com.github.darksoulq.mt_multiblocks.port.BasicRedstonePort;
 import com.github.darksoulq.mt_multiblocks.port.BasicStructuralPort;
 import com.github.darksoulq.mt_multiblocks.preview.MultiblockPreviewManager;
+import com.github.darksoulq.mt_multiblocks.registry.MultiblockRegistry;
 import com.github.darksoulq.mt_multiblocks.registry.PortRegistry;
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents;
+import org.bukkit.Bukkit;
 import org.bukkit.NamespacedKey;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -21,11 +23,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class MTMultiblocks extends JavaPlugin {
-    private static MTMultiblocks instance;
 
     @Override
     public void onEnable() {
-        instance = this;
         registerDefaultPorts();
 
         getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, event -> {
@@ -43,15 +43,10 @@ public final class MTMultiblocks extends JavaPlugin {
     public void onDisable() {
         MultiblockPreviewManager.stop();
         ModelTracker.stop();
-
-        if (MultiblockRegistry.instance != null) {
-            MultiblockRegistry.instance.removeAllProxies();
-            MultiblockRegistry.instance.save();
-        }
     }
 
     public static MTMultiblocks getInstance() {
-        return instance;
+        return JavaPlugin.getPlugin(MTMultiblocks.class);
     }
 
     private void registerDefaultPorts() {

@@ -315,7 +315,7 @@ public class MultiblockPreviewManager {
         return true;
     }
 
-    private static BlockFace getPlacementFacingHorizontal(Player player) {
+    public static BlockFace getPlacementFacingHorizontal(Player player) {
         Vector dir = player.getLocation().getDirection().normalize();
         if (Math.abs(dir.getX()) > Math.abs(dir.getZ())) {
             return dir.getX() > 0.0 ? BlockFace.EAST : BlockFace.WEST;
